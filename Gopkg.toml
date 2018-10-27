@@ -1,0 +1,11 @@
+[prune]
+  go-tests = true
+  unused-packages = true
+
+[[constraint]]
+  branch = "master"
+  name = "github.com/xiam/exif"
+
+[[constraint]]
+  name = "github.com/gosimple/slug"
+  version = "1.3.0"
