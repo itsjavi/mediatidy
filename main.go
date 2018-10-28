@@ -1,359 +1,483 @@
 package main
 
 import (
-	"crypto/md5"
-	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
-	"github.com/gosimple/slug"
-	"github.com/xiam/exif"
-	"io"
 	"io/ioutil"
-	"log"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"regexp"
-	"strconv"
 	"strings"
 	"time"
+
+	"github.com/gosimple/slug"
 )
 
-const (
-	AppName     = "convergent"
-	MinFileSize = 10000 // 15 kB
-	PathPerms   = 0755
-)
+/*
+PHASES:
+1. Parse CLI arguments
+2. Walk path
+3. Check if path is file and readable
+4. Check if file is supported type
+5. Check if file is not too small
+6. Extract Metadata
+7. Build destination path name (media type, camera, date)
+8. Build destination filename (date/slug, file md5)
+9. Detect if absolute file destination path is a duplicate
+10. Move/copy file
+11. Create metadata JSON file
+12. Add entry into log file
+ */
 
-func catch(e error) {
-	if e != nil {
-		log.Fatal("Unexpected error: " + e.Error())
-		panic(e)
-	}
+var imageReg = regexp.MustCompile(RegexImage)
+var videoReg = regexp.MustCompile(RegexVideo)
+var audioReg = regexp.MustCompile(RegexAudio)
+var docsReg = regexp.MustCompile(RegexDocument)
+
+type appStats struct {
+	unique     int
+	duplicated int
+	skipped    int
 }
 
-func PathExists(path string) bool {
-	if _, err := os.Stat(path); os.IsNotExist(err) {
-		return false
-	}
-	return true
+type appParams struct {
+	src      string
+	dest     string
+	move     *bool
+	limit    *int
+	date     string
+	total    appStats
+	srcByApp bool // true if src was created by this app
 }
 
-func fsize(path string) int64 {
-	fi, err := os.Stat(path)
-	catch(err)
-	return fi.Size()
+type fileFlags struct {
+	unique     bool
+	duplicated bool
+	skipped    bool
 }
 
-func fappend(path, str string) {
-	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, PathPerms)
-	if err != nil {
-		catch(err)
-	}
-
-	defer f.Close()
-
-	if _, err = f.WriteString(str); err != nil {
-		catch(err)
-	}
+type destFile struct {
+	path      string
+	name      string
+	dirName   string
+	extension string
 }
 
-func LogLn(message string, a ...interface{}) {
-	fmt.Printf("["+AppName+"] "+message+"\n", a...)
+type fileData struct {
+	path             string
+	dest             destFile
+	name             string
+	nameSlug         string
+	size             int64
+	extension        string
+	creationTime     string
+	modificationTime string
+	mediaType        string
+	isMultimedia     bool
+	flags            fileFlags
+	metadata         ExifToolData
+	metadataRaw      string
+	creationTool     string
+	cameraModel      string
+	topic            string
+	checksum         string
 }
 
-func hashFileMd5(filePath string) (string, error) {
-	var returnMD5String string
-	file, err := os.Open(filePath)
-	if err != nil {
-		return returnMD5String, err
-	}
-	defer file.Close()
-	hash := md5.New()
-	if _, err := io.Copy(hash, file); err != nil {
-		return returnMD5String, err
-	}
-	hashInBytes := hash.Sum(nil)[:16]
-	returnMD5String = hex.EncodeToString(hashInBytes)
-	return returnMD5String, nil
-
-}
-
-func getCameraAndDate(path string) (string, string) {
-	camera := "other"
-
-	if regexp.MustCompile(`(?m)(?i)(Screen Shot|Captura|Screenshot)`).MatchString(path) {
-		camera = "screenshots"
-	} else if regexp.MustCompile(`(?m)(?i)(facebook)`).MatchString(path) {
-		camera = "facebook"
-	} else if regexp.MustCompile(`(?m)(?i)(instagram)`).MatchString(path) {
-		camera = "instagram"
-	} else if regexp.MustCompile(`(?m)(?i)(twitter)`).MatchString(path) {
-		camera = "twitter"
-	} else if regexp.MustCompile(`(?m)(?i)(whatsapp)`).MatchString(path) {
-		camera = "whatsapp"
-	} else if regexp.MustCompile(`(?m)(?i)(telegram)`).MatchString(path) {
-		camera = "telegram"
-	} else if regexp.MustCompile(`(?m)(?i)(messenger)`).MatchString(path) {
-		camera = "messenger"
-	} else if regexp.MustCompile(`(?m)(?i)(snapchat)`).MatchString(path) {
-		camera = "snapchat"
-	}
-
-	fallbackCamera := camera
-
-	fileInfo, err := os.Stat(path)
-	if err != nil {
-		return camera, ""
-	}
-	dateOriginalFallback := fileInfo.ModTime().Format("2006:01:02 15:04:05") // fallback
-
-	data, err := exif.Read(path)
-	if err != nil {
-		return camera, dateOriginalFallback
-	}
-
-	camera = slug.Make(strings.Trim(fmt.Sprintf("%s %s", data.Tags["Manufacturer"], data.Tags["Model"]), " "))
-	dateOriginal := data.Tags["Date and Time (Original)"]
-
-	if dateOriginal == "" {
-		dateOriginal = data.Tags["Date and Time (Digitized)"]
-	}
-
-	if dateOriginal == "" {
-		dateOriginal = dateOriginalFallback
-	}
-
-	if camera == "" {
-		camera = fallbackCamera
-	}
-
-	return camera, dateOriginal
-}
-
-func getNewPath(path string, camera string, date string, mediaType string) (string, string) {
-	t, err := time.Parse("2006:01:02 15:04:05", date)
-	dateFolder := "2000/" + camera + "/01"
-	dateName := "2000-01-01-00-00-00"
-
-	if err == nil {
-		// dateFolder = fmt.Sprintf("%s/%d/%02d/%02d", camera, t.Year(), t.Month(), t.Day())
-		if mediaType != "images" && camera == "other" {
-			dateFolder = fmt.Sprintf("%d/%02d", t.Year(), t.Month())
-		} else {
-			dateFolder = fmt.Sprintf("%d/%s/%02d", t.Year(), camera, t.Month())
-		}
-		dateName = fmt.Sprintf("%d%02d%02d-%02d%02d%02d", t.Year(), t.Month(), t.Day(),
-			t.Hour(), t.Minute(), t.Second())
-	}
-
-	fileMd5, _ := hashFileMd5(path)
-	if fileMd5 == "" {
-		panic("Cannot create MD5 for file: " + path)
-		//hash := md5.New();
-		//hash.Write([]byte(uuid.NewV4().String() + path + dateFolder + dateName + mediaType))
-		//fileMd5 := hex.EncodeToString(hash.Sum(nil)[:16])
-	}
-
-	fileName := dateName + "-" + fileMd5 + strings.ToLower(filepath.Ext(path))
-	return mediaType + "/" + dateFolder, fileName
-}
-
-func cp(src, dest string) error {
-	s, err := os.Open(src)
-	if err != nil {
-		return err
-	}
-
-	defer s.Close()
-	d, err := os.Create(dest)
-	if err != nil {
-		return err
-	}
-	if _, err := io.Copy(d, s); err != nil {
-		d.Close()
-		return err
-	}
-	return d.Close()
-}
-
-func mv(src, dest string) error {
-	err := os.Rename(src, dest)
-
-	if err != nil {
-		return err
-	}
-
-	return nil
-}
-
-func mkdirp(dir string) {
-	if !PathExists(dir) {
-		catch(os.MkdirAll(dir, PathPerms))
-	}
-}
-
-type FileMetadata map[string]interface{}
-
-func extractMetadataJson(path string) []byte {
-	out, err := exec.Command("exiftool", path, "-json").Output()
-	if err != nil {
-		return []byte(`[{"SourceFile":"` + path + `"}]`)
-	}
-
-	return out
-}
-
-func extractMetadata(path string) FileMetadata {
-	var data []FileMetadata
-	jsonData := extractMetadataJson(path)
-	catch(json.Unmarshal([]byte(jsonData), &data))
-
-	return data[0]
-}
-
-func processFile(path string, fileName string, destRoot string, destDir string, moveFiles bool) bool {
-	absDestDir := destRoot + "/" + destDir
-	absDestMetaDir := destRoot + "/.metadata/" + destDir
-	absDestDuplDir := destRoot + "/.duplicates/" + destDir
-	absDestDuplMetaDir := destRoot + "/.duplicates/.metadata/" + destDir
-	absDestFile := absDestDir + "/" + fileName
-	metaFileName := strings.Replace(fileName, strings.ToLower(filepath.Ext(path)), "", -1) + ".json"
-	absDestMetaFile := absDestMetaDir + "/" + metaFileName
-
-	jsonData := extractMetadataJson(path)
-	isDuplicated := false
-
-	mkdirp(absDestDir)
-	mkdirp(absDestMetaDir)
-
-	if PathExists(absDestFile) {
-		isDuplicated = true
-
-		mkdirp(absDestDuplDir)
-		mkdirp(absDestDuplMetaDir)
-
-		//if !PathExists(absDestDuplDir + "/" + fileName) {
-		if moveFiles {
-			catch(mv(path, absDestDuplDir+"/"+fileName))
-		} else {
-			catch(cp(path, absDestDuplDir+"/"+fileName))
-		}
-		//}
-
-		//if !PathExists(absDestDuplMetaDir + "/" + metaFileName) {
-		catch(ioutil.WriteFile(absDestDuplMetaDir+"/"+metaFileName, jsonData, PathPerms))
-		//}
-	} else {
-		if moveFiles {
-			catch(mv(path, absDestFile))
-		} else {
-			catch(cp(path, absDestFile))
-		}
-	}
-
-	if !PathExists(absDestMetaFile) {
-		catch(ioutil.WriteFile(absDestMetaDir+"/"+metaFileName, jsonData, PathPerms))
-	}
-
-	return isDuplicated
-}
-
-func tpl(str string, vars ...interface{}) string {
-	return fmt.Sprintf(str, vars...)
-}
-
-func main() {
-	limit := flag.Int("limit", 0, "Limit the amount of processed files")
-	moveFiles := flag.Bool("move", false, "Moves the files instead of copying them")
+func createAppParams() (appParams, error) {
+	params := appParams{date: time.Now().Format(time.RFC3339), total: appStats{unique: 0, duplicated: 0, skipped: 0}}
+	params.srcByApp = false
+	params.limit = flag.Int("limit", 0, "Limit the amount of processed files")
+	params.move = flag.Bool("move", false, "Moves the files instead of copying them")
 
 	flag.Parse()
 
-	src := flag.Arg(0)
-	dest := flag.Arg(1)
+	params.src = strings.TrimRight(strings.TrimSpace(flag.Arg(0)), string(os.PathSeparator))
+	params.dest = strings.TrimRight(strings.TrimSpace(flag.Arg(1)), string(os.PathSeparator))
 
-	imageReg := regexp.MustCompile("(?i)\\.(jpg|jpeg|gif|png|webp|tiff|bmp|raw)$")
-	//imageJpegReg := regexp.MustCompile("(?i)\\.(jpg|jpeg)$")
-	videoReg := regexp.MustCompile("(?i)\\.(mpg|wmv|avi|mov|m4v|3gp|mp4|flv|webm|ogv|ts)$")
-	audioReg := regexp.MustCompile("(?i)\\.(mp3|m4a|aac|wav|ogg|oga|wma|flac)$")
-
-	if src == "" {
-		panic("Missing argument: source-folder")
+	if params.src == "" {
+		return params, errors.New("missing argument 1: <src>")
 	}
 
-	if dest == "" {
-		dest = src + "-" + AppName
+	if pathExists(params.src+"/"+AppLogFile) && pathExists(params.src+"/"+DirMetadata) {
+		params.srcByApp = true
 	}
 
-	found := 0
-	duplicates := 0
-	skipped := 0
+	if params.dest == "" {
+		params.dest = params.src + "-" + AppName
+	}
 
-	err := filepath.Walk(src, func(path string, info os.FileInfo, err error) error {
-		mediaType := ""
+	return params, nil
+}
 
-		if imageReg.MatchString(path) {
-			mediaType = "images"
+func getMediaType(ext string) string {
+	if imageReg.MatchString(ext) {
+		return MediaTypeImages
+	}
+
+	if videoReg.MatchString(ext) {
+		return MediaTypeVideos
+	}
+
+	if audioReg.MatchString(ext) {
+		return MediaTypeAudios
+	}
+
+	if docsReg.MatchString(ext) {
+		return MediaTypeDocuments
+	}
+
+	return ""
+}
+
+func parseMetadata(params appParams, file fileData) []byte {
+	if params.srcByApp {
+		fileRelDir := filepath.Dir(strings.Replace(file.path, params.src+"/", "", -1))
+		srcMetaFile := params.src + "/" + DirMetadata + "/" + fileRelDir + "/" + file.name + ".json"
+
+		if pathExists(srcMetaFile) {
+			metadataBytes, err := ioutil.ReadFile(srcMetaFile)
+			if err == nil {
+				return metadataBytes
+			}
 		}
+	}
 
-		if videoReg.MatchString(path) {
-			mediaType = "videos"
-		}
+	fallbackMetadata := []byte(`[{"SourceFile":"` + file.path + `", "Error": true}]`)
+	return extractMetadata(file.path, fallbackMetadata)
+}
 
-		if audioReg.MatchString(path) {
-			mediaType = "audios"
-		}
+func parseFileData(params appParams, path string, info os.FileInfo) (fileData, error) {
+	data := fileData{path: path, size: info.Size(), flags: fileFlags{skipped: false, duplicated: false, unique: false}}
 
-		if mediaType == "" {
-			return nil
-		}
+	// Unreadable path or is a dirName?
+	if data.size == 0 || info.IsDir() {
+		data.flags.skipped = true
+		return data, nil
+	}
 
-		if (*limit > 0) && ((found + duplicates) >= *limit) {
-			return nil
-		}
+	data.extension = strings.ToLower(filepath.Ext(path))
+	data.mediaType = getMediaType(data.extension)
+	data.isMultimedia = false
 
-		fileSize := fsize(path)
+	// Unsupported media type?
+	if data.mediaType == "" {
+		data.flags.skipped = true
+		return data, nil
+	}
 
-		if fileSize < 1000 { // < 1 KB
-			skipped++
-			LogLn("   (skipping too small file)  " + strings.Replace(path, src, "", -1))
-			return nil
-		}
+	if data.mediaType != MediaTypeDocuments {
+		data.isMultimedia = true
+	}
 
-		camera, date := getCameraAndDate(path)
-		newDir, newFilename := getNewPath(path, camera, date, mediaType)
+	// File is too small?
+	minFileSize := FileSizeMin
+	if !data.isMultimedia {
+		minFileSize = FileSizeMinDocs
+	}
+	if data.size < int64(minFileSize) {
+		data.flags.skipped = true
+		return data, nil
+	}
 
-		if fileSize < MinFileSize {
-			newDir = ".small/" + newDir
-		}
+	// Name without extension
+	data.name = strings.Replace(info.Name(), data.extension, "", -1)
+	data.nameSlug = slug.Make(data.name)
 
-		isDuplicated := processFile(path, newFilename, dest, newDir, *moveFiles)
+	// Find file times
+	data.modificationTime = info.ModTime().Format(time.RFC3339)
+	data.creationTime = findEarliestCreationDate(data)
 
-		if isDuplicated {
-			duplicates++
-			LogLn("   (duplicated)  " + newDir + "/" + newFilename)
+	// Parse metadata
+	metadataBytes := parseMetadata(params, data)
+	data.metadata = unmarshalMetadata(metadataBytes)
+	data.metadataRaw = string(metadataBytes)
+
+	data.flags.unique = true
+
+	// MD5 checksum
+	checksum, err := getFileChecksum(data.path)
+	if err != nil {
+		data.flags.skipped = true
+		return data, err
+	}
+	data.checksum = checksum
+
+	// Find creation tool, camera, topic
+	data.topic = findFileTopic(path)
+	data.cameraModel = findCameraName(data)
+	data.creationTool = findCreationTool(data)
+
+	// Build dest file name and dirName
+	destDir, destName := buildDestPaths(data)
+	data.dest.name = destName
+	data.dest.dirName = destDir
+	data.dest.extension = data.extension
+	data.dest.path = params.dest + "/" + data.dest.dirName + "/" + data.dest.name + data.dest.extension
+
+	// Detect duplication
+	if pathExists(data.dest.path) {
+		data.flags.unique = false
+		data.flags.duplicated = true
+	}
+
+	return data, nil
+}
+
+func buildDestPaths(data fileData) (string, string) {
+	t, err := time.Parse(time.RFC3339, data.creationTime)
+	dateFolder := "2000/01/01"
+	fileNamePrefix := "20000101-000000"
+	topic := data.topic
+
+	if data.cameraModel != "" {
+		topic = data.cameraModel
+	}
+
+	if err == nil {
+		if data.mediaType != MediaTypeImages && topic == DefaultCameraModelFallback {
+			dateFolder = fmt.Sprintf("%d/%02d", t.Year(), t.Month())
 		} else {
-			found ++
-			LogLn(strconv.Itoa(found) + " - " + newDir + "/" + newFilename)
+			dateFolder = fmt.Sprintf("%d/%s/%02d", t.Year(), slug.Make(topic), t.Month())
 		}
+	}
+
+	if data.isMultimedia && (err == nil) {
+		fileNamePrefix = fmt.Sprintf("%d%02d%02d-%02d%02d%02d", t.Year(), t.Month(), t.Day(),
+			t.Hour(), t.Minute(), t.Second())
+	} else if data.isMultimedia {
+		fileNamePrefix = data.nameSlug
+	}
+
+	return data.mediaType + "/" + dateFolder, fileNamePrefix + "-" + data.checksum
+}
+
+func findFileTopic(path string) string {
+	topic := DefaultCameraModelFallback
+	tools := map[string]string{
+		"screenshots": `(?i)(Screen Shot|Screenshot|Captura)`,
+		"facebook":    `(?i)(facebook)`,
+		"instagram":   `(?i)(instagram)`,
+		"twitter":     `(?i)(twitter)`,
+		"whatsapp":    `(?i)(whatsapp)`,
+		"telegram":    `(?i)(telegram)`,
+		"messenger":   `(?i)(messenger)`,
+		"snapchat":    `(?i)(snapchat)`,
+		"music":       `(?i)(music|itunes|songs|lyrics|singing|karaoke)`,
+		"pokemon":     `(?i)(pokemon|poke|pkm)`,
+	}
+
+	for toolName, toolRegex := range tools {
+		if regexp.MustCompile(toolRegex).MatchString(path) {
+			return toolName
+		}
+	}
+
+	return topic
+}
+
+func findCreationTool(data fileData) string {
+	tool := ""
+
+	if data.metadata.CreatorTool != "" {
+		tool += data.metadata.CreatorTool
+	}
+
+	if tool == "" && (data.metadata.Software != "") {
+		tool += data.metadata.Software
+	}
+
+	return strings.TrimSpace(tool)
+}
+
+func findCameraName(data fileData) string {
+	camera := ""
+
+	if data.metadata.Make != "" {
+		camera = data.metadata.Make
+	}
+
+	if data.metadata.Model != "" {
+		camera += " " + data.metadata.Model
+	}
+
+	return strings.TrimSpace(camera)
+}
+
+func findEarliestCreationDate(data fileData) string {
+	var dates [6][2]string
+	var foundDates []time.Time
+	var creationDate time.Time
+
+	data.creationTime = data.modificationTime
+
+	metadataDateFormat := "2006:01:02 15:04:05"
+
+	dates[0] = [2]string{data.creationTime, time.RFC3339}
+	dates[1] = [2]string{data.metadata.CreateDate, metadataDateFormat}
+	dates[2] = [2]string{data.metadata.DateTimeOriginal, metadataDateFormat}
+	dates[3] = [2]string{data.metadata.DateTimeDigitized, metadataDateFormat}
+	dates[4] = [2]string{data.modificationTime, time.RFC3339}
+	dates[5] = [2]string{data.metadata.FileModifyDate, metadataDateFormat + "+07:00"}
+
+	for _, val := range dates {
+		if val[0] == "" {
+			continue
+		}
+		t, err := time.Parse(val[1], val[0])
+		if err != nil {
+			continue
+		}
+
+		foundDates = append(foundDates, t)
+	}
+
+	for i, val := range foundDates {
+		if i == 0 {
+			creationDate = val
+			continue
+		}
+
+		if (val.Year() > 1970) && (val.Unix() < creationDate.Unix()) {
+			creationDate = val
+		}
+	}
+
+	if creationDate.IsZero() {
+		return data.modificationTime
+	}
+
+	return creationDate.Format(time.RFC3339)
+}
+
+func writeLogFile(params appParams) {
+	log, err := json.Marshal(params)
+	catch(err)
+	fileAppend(params.dest+"/"+AppLogFile, fmt.Sprintf("%s", log)+"\n")
+}
+
+func storeFile(file fileData, params appParams) error {
+	// logln("saving %s", file.path)
+	destDir := params.dest + "/" + file.dest.dirName
+	destDirMeta := params.dest + "/" + DirMetadata + "/" + file.dest.dirName
+
+	if file.flags.duplicated {
+		destDir = params.dest + "/" + DirDuplicates + "/" + file.dest.dirName
+		destDirMeta = params.dest + "/" + DirDuplicates + "/" + DirMetadata + "/" + file.dest.dirName
+	}
+
+	destFile := destDir + "/" + file.dest.name + file.dest.extension
+	destFileMeta := destDirMeta + "/" + file.dest.name + ".json"
+
+	if !pathExists(destFileMeta) {
+		mkdirp(destDirMeta)
+		err := ioutil.WriteFile(destFileMeta, []byte(file.metadataRaw), PathPerms)
+		if err != nil {
+			return err
+		}
+	}
+
+	mkdirp(destDir)
+
+	if *params.move {
+		panic("Moving is disabled for now, until the code gets stable.")
+		//return mv(file.path, destFile)
+	} else {
+		return cp(file.path, destFile)
+	}
+}
+
+func writeLogOutput(params appParams) {
+	logVerb := "copied"
+
+	if *params.move {
+		logVerb = "moved"
+	}
+
+	logln("%d files (+%d duplicates, %d skipped) %s from `%s` to `%s`",
+		params.total.unique, params.total.duplicated, params.total.skipped, logVerb, params.src, params.dest)
+}
+
+func logsameln(format string, args ... interface{}) {
+	fmt.Printf("\033[2K\r"+format, args...)
+}
+
+var LimitExceededError = errors.New("LIMIT EXCEEDED")
+
+func main() {
+	params, err := createAppParams()
+	catch(err)
+
+	fmt.Printf("\n")
+
+	err = filepath.Walk(params.src, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+
+		if info.IsDir() && !strings.ContainsAny(path, "#@") {
+			scannedDir := strings.Replace(path, params.src+"/", "", -1)
+			if len(scannedDir) > 100 {
+				scannedDir = scannedDir[0:99] + "..."
+			}
+			logsameln(">> Analyzing: %s", scannedDir)
+		}
+
+		if info.IsDir() {
+			return nil
+		}
+
+		if regexp.MustCompile(RegexExcludeDirs).MatchString(path) {
+			params.total.skipped++
+			return nil
+		}
+
+		processed := params.total.unique + params.total.duplicated
+
+		if (*params.limit > 0) && (processed >= *params.limit) {
+			return LimitExceededError
+		}
+
+		// logln("Visiting %s", path)
+		data, err := parseFileData(params, path, info)
+
+		//logsameln(">> Processing # %s : %s", strconv.Itoa(processed+1), relPath)
+
+		if err != nil {
+			return err
+		}
+
+		if data.flags.skipped {
+			params.total.skipped++
+			// logln("    Skipped %s", data.path)
+			return nil
+		}
+
+		err = storeFile(data, params)
+		if err != nil {
+			return err
+		}
+
+		if data.flags.unique {
+			params.total.unique++
+		}
+
+		if data.flags.duplicated {
+			params.total.duplicated++
+		}
+
+		// jsonData, e := json.Marshal(data)
+		// fmt.Printf("%+v \n", data)
 
 		return nil
 	})
 
-	catch(err)
+	fmt.Printf("\n\n")
 
-	log := tpl(
-		`{"srcRoot":"%s", "destRoot":"%s", "unique": %d, "duplicated": %d, "skipped": %d, "date": "%s"}`,
-		src, dest, found, duplicates, skipped, time.Now().Format(time.RFC3339))
-
-	fappend(dest+"/"+AppName+".log", log+"\n")
-
-	LogLn("%d media files (+%d duplicates) found under `%s`", found, duplicates, src)
-
-	if *moveFiles {
-		LogLn("%d files moved, %d skipped", found+duplicates, skipped)
-	} else {
-		LogLn("%d files copied, %d skipped", found+duplicates, skipped)
+	if err != LimitExceededError {
+		catch(err)
 	}
+	writeLogFile(params)
+	writeLogOutput(params)
 }

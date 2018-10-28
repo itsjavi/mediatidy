@@ -1,6 +1,6 @@
-# Convergent
+# Untangle
 
-Convergent helps you organize your photos, videos and audios, all automatically.
+Untangle helps you organize your photos, videos and audios, all automatically.
 
 - Having thousands of pictures and videos lost in complex nested folder structures?
 - Don't you remember what camera or phone did you use to take that picture, or if it's even yours?
@@ -8,7 +8,7 @@ Convergent helps you organize your photos, videos and audios, all automatically.
 - Do you have many screen shots mixed up with your regular photos?
 - Do you have problems finding files from an specific date?
 
-No problemo! Convergent will organize all the mess for you.
+No problemo! Untangle will organize all the mess for you.
 
 ## Features
 
@@ -28,13 +28,17 @@ No problemo! Convergent will organize all the mess for you.
 ## Installation
 
 ```bash
-go install github.com/itsjavi/convergent
+go install github.com/itsjavi/untangle
 
 ```
 
 ## Usage
 
 ```bash
-convergent [-limit n] [-move] [<src>] [<dest>]
+untangle [-limit n] [-move] <src> [<dest>]
 
 ```
+
+### Options
+
+- `-limit n`: Limits the

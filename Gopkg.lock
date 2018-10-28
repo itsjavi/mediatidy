@@ -13,15 +13,9 @@
   packages = ["."]
   revision = "cb7f23ec59bec0d61b19c56cd88cee3d0cc1870c"
 
-[[projects]]
-  branch = "master"
-  name = "github.com/xiam/exif"
-  packages = ["."]
-  revision = "33e82e3db72f03c4d55d10b7275d267fc7cd0e45"
-
 [solve-meta]
   analyzer-name = "dep"
   analyzer-version = 1
-  inputs-digest = "3a1fa3769084fff6e99633120172730a84e012779eede13888570b6c253e2aaf"
+  inputs-digest = "a41773d24661cabef79dcca1298f9fabdad158334ac7f713bc5559b3848818a6"
   solver-name = "gps-cdcl"
   solver-version = 1
