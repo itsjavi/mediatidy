@@ -2,20 +2,24 @@
 
 
 [[projects]]
+  digest = "1:336a3f4034b62469e9adf046b084fa7b8b756339d5cff9e61bbd810adece75d5"
   name = "github.com/gosimple/slug"
   packages = ["."]
+  pruneopts = "UT"
   revision = "283c8d10b72e48ecfd721b1739de574713e57a0b"
   version = "v1.3.0"
 
 [[projects]]
   branch = "master"
+  digest = "1:e6a29574542c00bb18adb1bfbe629ff88c468c2af2e2e953d3e58eda07165086"
   name = "github.com/rainycape/unidecode"
   packages = ["."]
+  pruneopts = "UT"
   revision = "cb7f23ec59bec0d61b19c56cd88cee3d0cc1870c"
 
 [solve-meta]
   analyzer-name = "dep"
   analyzer-version = 1
-  inputs-digest = "a41773d24661cabef79dcca1298f9fabdad158334ac7f713bc5559b3848818a6"
+  input-imports = ["github.com/gosimple/slug"]
   solver-name = "gps-cdcl"
   solver-version = 1

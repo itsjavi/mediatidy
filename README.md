@@ -35,7 +35,7 @@ go install github.com/itsjavi/untangle
 ## Usage
 
 ```bash
-untangle [-limit n] [-move] <src> [<dest>]
+untangle [-limit n] [-move] [-dry-run] <src> [<dest>]
 
 ```
 

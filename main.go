@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -36,6 +37,17 @@ var videoReg = regexp.MustCompile(RegexVideo)
 var audioReg = regexp.MustCompile(RegexAudio)
 var docsReg = regexp.MustCompile(RegexDocument)
 
+type RawJsonMap map[string]interface{}
+
+type photoTakenTime struct {
+	Timestamp string `json:"timestamp"`
+	Formatted string `json:"formatted"`
+}
+
+type googleTakeoutData struct {
+	PhotoTakenTime photoTakenTime `json:"photoTakenTime"`
+}
+
 type appStats struct {
 	unique     int
 	duplicated int
@@ -43,13 +55,14 @@ type appStats struct {
 }
 
 type appParams struct {
-	src      string
-	dest     string
-	move     *bool
-	limit    *int
-	date     string
-	total    appStats
-	srcByApp bool // true if src was created by this app
+	src           string
+	dest          string
+	move          *bool
+	limit         *int
+	dryRun        *bool
+	date          string
+	total         appStats
+	isUntangleDir bool // true if src was created by this app
 }
 
 type fileFlags struct {
@@ -87,9 +100,10 @@ type fileData struct {
 
 func createAppParams() (appParams, error) {
 	params := appParams{date: time.Now().Format(time.RFC3339), total: appStats{unique: 0, duplicated: 0, skipped: 0}}
-	params.srcByApp = false
-	params.limit = flag.Int("limit", 0, "Limit the amount of processed files")
+	params.isUntangleDir = false
+	params.limit = flag.Int("limit", 0, "Limit the amount of processed files. 0 = no limit.")
 	params.move = flag.Bool("move", false, "Moves the files instead of copying them")
+	params.dryRun = flag.Bool("dry-run", false, "If true, it won't do any write operations.")
 
 	flag.Parse()
 
@@ -101,7 +115,7 @@ func createAppParams() (appParams, error) {
 	}
 
 	if pathExists(params.src+"/"+AppLogFile) && pathExists(params.src+"/"+DirMetadata) {
-		params.srcByApp = true
+		params.isUntangleDir = true
 	}
 
 	if params.dest == "" {
@@ -132,15 +146,20 @@ func getMediaType(ext string) string {
 }
 
 func parseMetadata(params appParams, file fileData) []byte {
-	if params.srcByApp {
-		fileRelDir := filepath.Dir(strings.Replace(file.path, params.src+"/", "", -1))
-		srcMetaFile := params.src + "/" + DirMetadata + "/" + fileRelDir + "/" + file.name + ".json"
+	// Search for an already existing Untangled JSON metadata file in the src path
+	fileRelDir := filepath.Dir(strings.Replace(file.path, params.src+"/", "", -1))
+	srcMetaFile := params.src + "/" + DirMetadata + "/" + fileRelDir + "/" +
+		file.name + file.extension + ".json"
 
-		if pathExists(srcMetaFile) {
-			metadataBytes, err := ioutil.ReadFile(srcMetaFile)
-			if err == nil {
-				return metadataBytes
-			}
+	if !pathExists(srcMetaFile) {
+		// try with filename.json (old format)
+		srcMetaFile = params.src + "/" + DirMetadata + "/" + fileRelDir + "/" + file.name + ".json"
+	}
+
+	if pathExists(srcMetaFile) {
+		metadataBytes, err := ioutil.ReadFile(srcMetaFile)
+		if err == nil {
+			return metadataBytes
 		}
 	}
 
@@ -187,6 +206,7 @@ func parseFileData(params appParams, path string, info os.FileInfo) (fileData, e
 
 	// Find file times
 	data.modificationTime = info.ModTime().Format(time.RFC3339)
+	data.creationTime = data.modificationTime
 	data.creationTime = findEarliestCreationDate(data)
 
 	// Parse metadata
@@ -230,12 +250,13 @@ func buildDestPaths(data fileData) (string, string) {
 	dateFolder := "2000/01/01"
 	fileNamePrefix := "20000101-000000"
 	topic := data.topic
+	isDateParsed := err == nil
 
 	if data.cameraModel != "" {
 		topic = data.cameraModel
 	}
 
-	if err == nil {
+	if isDateParsed {
 		if data.mediaType != MediaTypeImages && topic == DefaultCameraModelFallback {
 			dateFolder = fmt.Sprintf("%d/%02d", t.Year(), t.Month())
 		} else {
@@ -243,11 +264,16 @@ func buildDestPaths(data fileData) (string, string) {
 		}
 	}
 
-	if data.isMultimedia && (err == nil) {
+	if data.isMultimedia && isDateParsed {
 		fileNamePrefix = fmt.Sprintf("%d%02d%02d-%02d%02d%02d", t.Year(), t.Month(), t.Day(),
 			t.Hour(), t.Minute(), t.Second())
-	} else if data.isMultimedia {
+	} else if !data.isMultimedia {
 		fileNamePrefix = data.nameSlug
+	}
+
+	if strings.Contains(strings.ToUpper(fileNamePrefix), strings.ToUpper(data.checksum)) {
+		// Avoid repeating MD5 hash in the filename
+		return data.mediaType + "/" + dateFolder, fileNamePrefix
 	}
 
 	return data.mediaType + "/" + dateFolder, fileNamePrefix + "-" + data.checksum
@@ -310,15 +336,13 @@ func findEarliestCreationDate(data fileData) string {
 	var foundDates []time.Time
 	var creationDate time.Time
 
-	data.creationTime = data.modificationTime
-
 	metadataDateFormat := "2006:01:02 15:04:05"
 
-	dates[0] = [2]string{data.creationTime, time.RFC3339}
-	dates[1] = [2]string{data.metadata.CreateDate, metadataDateFormat}
-	dates[2] = [2]string{data.metadata.DateTimeOriginal, metadataDateFormat}
-	dates[3] = [2]string{data.metadata.DateTimeDigitized, metadataDateFormat}
-	dates[4] = [2]string{data.modificationTime, time.RFC3339}
+	dates[0] = [2]string{findGoogleTakeoutTakenTimestamp(data.path), time.RFC3339}
+	dates[1] = [2]string{data.modificationTime, time.RFC3339}
+	dates[2] = [2]string{data.metadata.CreateDate, metadataDateFormat}
+	dates[3] = [2]string{data.metadata.DateTimeOriginal, metadataDateFormat}
+	dates[4] = [2]string{data.metadata.DateTimeDigitized, metadataDateFormat}
 	dates[5] = [2]string{data.metadata.FileModifyDate, metadataDateFormat + "+07:00"}
 
 	for _, val := range dates {
@@ -351,6 +375,32 @@ func findEarliestCreationDate(data fileData) string {
 	return creationDate.Format(time.RFC3339)
 }
 
+func findGoogleTakeoutTakenTimestamp(filePath string) string {
+	if !pathExists(filePath + ".json") {
+		return ""
+	}
+
+	metadataBytes, err := ioutil.ReadFile(filePath + ".json")
+	if err != nil {
+		return ""
+	}
+
+	var rawData googleTakeoutData
+	err = json.Unmarshal(metadataBytes, &rawData)
+
+	if err != nil {
+		return ""
+	}
+
+	timestamp, err := strconv.Atoi(rawData.PhotoTakenTime.Timestamp)
+
+	if err != nil || timestamp <= 1 {
+		return ""
+	}
+
+	return time.Unix(int64(timestamp), 0).Format(time.RFC3339)
+}
+
 func writeLogFile(params appParams) {
 	log, err := json.Marshal(params)
 	catch(err)
@@ -358,7 +408,6 @@ func writeLogFile(params appParams) {
 }
 
 func storeFile(file fileData, params appParams) error {
-	// logln("saving %s", file.path)
 	destDir := params.dest + "/" + file.dest.dirName
 	destDirMeta := params.dest + "/" + DirMetadata + "/" + file.dest.dirName
 
@@ -368,7 +417,12 @@ func storeFile(file fileData, params appParams) error {
 	}
 
 	destFile := destDir + "/" + file.dest.name + file.dest.extension
-	destFileMeta := destDirMeta + "/" + file.dest.name + ".json"
+	destFileMeta := destDirMeta + "/" + file.dest.name + file.dest.extension + ".json"
+
+	if *params.dryRun {
+		logln("%s --->\n %s\n", file.path, destFile)
+		return nil
+	}
 
 	if !pathExists(destFileMeta) {
 		mkdirp(destDirMeta)
@@ -378,11 +432,17 @@ func storeFile(file fileData, params appParams) error {
 		}
 	}
 
+	if pathExists(file.path + ".json") {
+		// Import Google Takeout metadata file
+		return cp(file.path+".json",
+			destDirMeta+"/"+file.dest.name+file.dest.extension+".takeout.json")
+	}
+
 	mkdirp(destDir)
 
+	// TODO: correct file ctime/mtime to creationTime
 	if *params.move {
-		panic("Moving is disabled for now, until the code gets stable.")
-		//return mv(file.path, destFile)
+		return mv(file.path, destFile)
 	} else {
 		return cp(file.path, destFile)
 	}
@@ -439,10 +499,7 @@ func main() {
 			return LimitExceededError
 		}
 
-		// logln("Visiting %s", path)
 		data, err := parseFileData(params, path, info)
-
-		//logsameln(">> Processing # %s : %s", strconv.Itoa(processed+1), relPath)
 
 		if err != nil {
 			return err
@@ -450,7 +507,6 @@ func main() {
 
 		if data.flags.skipped {
 			params.total.skipped++
-			// logln("    Skipped %s", data.path)
 			return nil
 		}
 
@@ -467,9 +523,6 @@ func main() {
 			params.total.duplicated++
 		}
 
-		// jsonData, e := json.Marshal(data)
-		// fmt.Printf("%+v \n", data)
-
 		return nil
 	})
 
@@ -478,6 +531,10 @@ func main() {
 	if err != LimitExceededError {
 		catch(err)
 	}
-	writeLogFile(params)
+
+	if !*params.dryRun {
+		writeLogFile(params)
+	}
+
 	writeLogOutput(params)
 }

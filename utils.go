@@ -5,13 +5,26 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strconv"
 )
 
-func getMapVal(metadata ExifToolDataMap, key string, defaultVal interface{}) interface{} {
-	if val, ok := metadata[key]; ok {
-		return val
+func getMapValueByKey(dataMap RawJsonMap, key string) string {
+	if val, ok := dataMap[key]; ok {
+		return sanitizeType(val)
 	}
-	return defaultVal
+
+	return ""
+}
+
+func sanitizeType(val interface{}) string {
+	switch val.(type) {
+	case int:
+		return strconv.Itoa(val.(int))
+	case float64:
+		return strconv.FormatFloat(val.(float64), 'f', 6, 64)
+	default:
+		return fmt.Sprintf("%s", val)
+	}
 }
 
 func catch(e error, data ... interface{}) {
