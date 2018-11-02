@@ -12,7 +12,7 @@ const (
 	MediaTypeVideos    = "videos"
 	MediaTypeImages    = "images"
 
-	DefaultCameraModelFallback = "other"
+	DefaultCameraModelFallback = "no-camera/other"
 
 	DirDuplicates = ".duplicates"
 	DirMetadata   = ".metadata"
