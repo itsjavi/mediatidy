@@ -29,6 +29,10 @@ func main() {
 	catch(err)
 
 	fmt.Printf("\n")
+	action := "[CP]"
+	if *params.move {
+		action = "[MV]"
+	}
 
 	err = filepath.Walk(params.src, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
@@ -41,7 +45,7 @@ func main() {
 			if len(scannedDir) > 100 {
 				scannedDir = scannedDir[0:99] + "..."
 			}
-			//logSameLn(">> Analyzing: %s", scannedDir)
+			logSameLn(">> %s Analyzing: %s", action, scannedDir)
 		}
 
 		if info.IsDir() {
@@ -64,7 +68,7 @@ func main() {
 			relPath = relPath[0:99] + "..."
 		}
 
-		// logSameLn(">> Parsing: %s", relPath)
+		logSameLn(">> %s Parsing: %s", action, relPath)
 
 		data, err := buildFileData(params, path, info)
 

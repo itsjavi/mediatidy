@@ -56,6 +56,7 @@ type ExifToolData struct {
 	GPSAltitude       string
 	GPSLatitude       string
 	GPSLongitude      string
+	GPSDateTime       string
 }
 
 type FileData struct {
@@ -93,12 +94,13 @@ type GoogleTakeoutData struct {
 }
 
 func readExifMetadata(path string, fallback []byte) []byte {
-	jsonStr, err := exec.Command("exiftool", path, "-json").Output()
+	// logLn("reading exif for %s", path)
+	jsonBytes, err := exec.Command("exiftool", path, "-json").Output()
 	if err != nil {
 		return fallback
 	}
 
-	return jsonStr
+	return jsonBytes
 }
 
 func parseExifMetadata(jsonData []byte) ExifToolData {
@@ -131,6 +133,7 @@ func parseExifMetadata(jsonData []byte) ExifToolData {
 	ds.GPSAltitude = getJsonMapValue(d, "GPSAltitude")
 	ds.GPSLatitude = getJsonMapValue(d, "GPSLatitude")
 	ds.GPSLongitude = getJsonMapValue(d, "GPSLongitude")
+	ds.GPSDateTime = getJsonMapValue(d, "GPSDateTime")
 
 	return ds
 }
@@ -174,6 +177,17 @@ func readMetadata(params appParams, file FileData) []byte {
 		srcMetaFile = params.src + "/" + DirMetadata + "/" + fileRelDir + "/" + file.name + ".json"
 	}
 
+	if !pathExists(srcMetaFile) {
+		// try with dest dir
+		srcMetaFile = params.dest + "/" + DirMetadata + "/" + fileRelDir + "/" +
+			file.name + file.extension + ".json"
+	}
+
+	if !pathExists(srcMetaFile) {
+		// try with dest dir (old format)
+		srcMetaFile = params.dest + "/" + DirMetadata + "/" + fileRelDir + "/" + file.name + ".json"
+	}
+
 	if pathExists(srcMetaFile) {
 		metadataBytes, err := ioutil.ReadFile(srcMetaFile)
 		if err == nil {
@@ -204,6 +218,14 @@ func buildFileData(params appParams, path string, info os.FileInfo) (FileData, e
 		return data, nil
 	}
 
+	// File extension not whitelisted?
+	if data.mediaType == "" ||
+		(*params.extensions != "" &&
+			!regexp.MustCompile("(?i)\\.(" + *params.extensions + ")$").MatchString(path)) {
+		data.flags.skipped = true
+		return data, nil
+	}
+
 	if data.mediaType != MediaTypeDocuments {
 		data.isMultimedia = true
 	}
@@ -228,15 +250,15 @@ func buildFileData(params appParams, path string, info os.FileInfo) (FileData, e
 	data.name = strings.Replace(info.Name(), data.extension, "", -1)
 	data.nameSlug = slug.Make(data.name)
 
-	// Find file times
-	data.modificationTime = info.ModTime().Format(time.RFC3339)
-	data.creationTime = data.modificationTime
-	data.creationTime = findEarliestCreationDate(data)
-
 	// Parse metadata
 	metadataBytes := readMetadata(params, data)
 	data.metadata = parseExifMetadata(metadataBytes)
 	data.metadataRaw = string(metadataBytes)
+
+	// Find file times
+	data.modificationTime = info.ModTime().Format(time.RFC3339)
+	data.creationTime = data.modificationTime
+	data.creationTime = findEarliestCreationDate(data)
 
 	data.flags.unique = true
 
@@ -246,6 +268,7 @@ func buildFileData(params appParams, path string, info os.FileInfo) (FileData, e
 		data.flags.skipped = true
 		return data, err
 	}
+
 	data.checksum = checksum
 
 	// Find creation tool, camera, topic
@@ -260,13 +283,19 @@ func buildFileData(params appParams, path string, info os.FileInfo) (FileData, e
 	data.dest.extension = data.extension
 	data.dest.path = params.dest + "/" + data.dest.dirName + "/" + data.dest.name + data.dest.extension
 
-	// Detect duplication
-	if pathExists(data.dest.path) {
+	if pathExists(checksumPath(data.mediaType, checksum, params.dest)) || pathExists(data.dest.path) {
+		// Detect duplication by checksum or dest path
 		data.flags.unique = false
 		data.flags.duplicated = true
+		return data, nil
 	}
 
 	return data, nil
+}
+
+func checksumPath(mediaType, checksum, rootPath string) string {
+	checksumRelPath := fmt.Sprintf("%s/%s/%s.txt", checksum[0:2], checksum[2:4], checksum)
+	return fmt.Sprintf("%s/%s/%s/%s", rootPath, DirChecksums, mediaType, checksumRelPath)
 }
 
 func buildDestPaths(data FileData) (string, string) {
@@ -280,13 +309,13 @@ func buildDestPaths(data FileData) (string, string) {
 	topic := data.topic
 
 	if data.cameraModel != "" {
-		topic = data.cameraModel
+		topic = slug.Make(data.cameraModel)
 	}
 
 	if data.mediaType != MediaTypeImages && topic == DefaultCameraModelFallback {
 		dateFolder = fmt.Sprintf("%d/%02d", t.Year(), t.Month())
 	} else {
-		dateFolder = fmt.Sprintf("%d/%s/%02d", t.Year(), slug.Make(topic), t.Month())
+		dateFolder = fmt.Sprintf("%d/%s/%02d", t.Year(), topic, t.Month())
 	}
 
 	if data.isMultimedia {
@@ -307,16 +336,16 @@ func buildDestPaths(data FileData) (string, string) {
 func findFileTopic(path string) string {
 	topic := DefaultCameraModelFallback
 	tools := map[string]string{
-		"no-camera/screenshots": `(?i)(Screen Shot|Screenshot|Captura)`,
-		"no-camera/facebook":    `(?i)(facebook)`,
-		"no-camera/instagram":   `(?i)(instagram)`,
-		"no-camera/twitter":     `(?i)(twitter)`,
-		"no-camera/whatsapp":    `(?i)(whatsapp)`,
-		"no-camera/telegram":    `(?i)(telegram)`,
-		"no-camera/messenger":   `(?i)(messenger)`,
-		"no-camera/snapchat":    `(?i)(snapchat)`,
-		"no-camera/music":       `(?i)(music|itunes|songs|lyrics|singing|karaoke)`,
-		"no-camera/pokemon":     `(?i)(pokemon|poke|pkm)`,
+		"screenshots": `(?i)(Screen Shot|Screenshot|Captura)`,
+		"facebook":    `(?i)(facebook)`,
+		"instagram":   `(?i)(instagram)`,
+		"twitter":     `(?i)(twitter)`,
+		"whatsapp":    `(?i)(whatsapp)`,
+		"telegram":    `(?i)(telegram)`,
+		"messenger":   `(?i)(messenger)`,
+		"snapchat":    `(?i)(snapchat)`,
+		"music":       `(?i)(music|itunes|songs|lyrics|singing|karaoke)`,
+		"pokemon":     `(?i)(pokemon|poke|pkm)`,
 	}
 
 	for toolName, toolRegex := range tools {
@@ -368,6 +397,7 @@ func findEarliestCreationDate(data FileData) string {
 	dates[2] = [2]string{data.metadata.CreateDate, metadataDateFormat}
 	dates[3] = [2]string{data.metadata.DateTimeOriginal, metadataDateFormat}
 	dates[4] = [2]string{data.metadata.DateTimeDigitized, metadataDateFormat}
+	dates[4] = [2]string{data.metadata.GPSDateTime, metadataDateFormat + "Z"}
 	dates[5] = [2]string{data.metadata.FileModifyDate, metadataDateFormat + "+07:00"}
 
 	for _, val := range dates {
@@ -406,6 +436,9 @@ func findGoogleTakeoutTakenTimestamp(fileData FileData) string {
 
 	if !pathExists(filePath) {
 		filePath = fileData.metaDir + "/" + fileData.name + fileData.extension + ".takeout.json"
+		if pathExists(filePath) {
+			panic("takeout.json found in: " + filePath)
+		}
 	}
 
 	if !pathExists(filePath) {
