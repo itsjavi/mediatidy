@@ -167,25 +167,25 @@ func getMediaType(ext string) string {
 }
 
 func readMetadata(params appParams, file FileData) []byte {
-	// Search for an already existing Untangled JSON metadata file in the src path
-	fileRelDir := filepath.Dir(strings.Replace(file.path, params.src+"/", "", -1))
-	srcMetaFile := params.src + "/" + DirMetadata + "/" + fileRelDir + "/" +
+	// Search for an already existing app JSON metadata file in the Src path
+	fileRelDir := filepath.Dir(strings.Replace(file.path, params.Src+"/", "", -1))
+	srcMetaFile := params.Src + "/" + DirMetadata + "/" + fileRelDir + "/" +
 		file.name + file.extension + ".json"
 
 	if !pathExists(srcMetaFile) {
 		// try with filename.json (old format)
-		srcMetaFile = params.src + "/" + DirMetadata + "/" + fileRelDir + "/" + file.name + ".json"
+		srcMetaFile = params.Src + "/" + DirMetadata + "/" + fileRelDir + "/" + file.name + ".json"
 	}
 
 	if !pathExists(srcMetaFile) {
-		// try with dest dir
-		srcMetaFile = params.dest + "/" + DirMetadata + "/" + fileRelDir + "/" +
+		// try with Dest dir
+		srcMetaFile = params.Dest + "/" + DirMetadata + "/" + fileRelDir + "/" +
 			file.name + file.extension + ".json"
 	}
 
 	if !pathExists(srcMetaFile) {
-		// try with dest dir (old format)
-		srcMetaFile = params.dest + "/" + DirMetadata + "/" + fileRelDir + "/" + file.name + ".json"
+		// try with Dest dir (old format)
+		srcMetaFile = params.Dest + "/" + DirMetadata + "/" + fileRelDir + "/" + file.name + ".json"
 	}
 
 	if pathExists(srcMetaFile) {
@@ -220,8 +220,8 @@ func buildFileData(params appParams, path string, info os.FileInfo) (FileData, e
 
 	// File extension not whitelisted?
 	if data.mediaType == "" ||
-		(*params.extensions != "" &&
-			!regexp.MustCompile("(?i)\\.(" + *params.extensions + ")$").MatchString(path)) {
+		(*params.Extensions != "" &&
+			!regexp.MustCompile("(?i)\\.(" + *params.Extensions + ")$").MatchString(path)) {
 		data.flags.skipped = true
 		return data, nil
 	}
@@ -241,10 +241,10 @@ func buildFileData(params appParams, path string, info os.FileInfo) (FileData, e
 	}
 
 	data.dir = filepath.Dir(path)
-	data.relDir = strings.Replace(data.dir, params.src+"/", "", -1)
-	data.relPath = strings.Replace(path, params.src+"/", "", -1)
-	data.metaDir = params.src + "/" + DirMetadata + "/" + data.relDir
-	data.duplDir = params.src + "/" + DirDuplicates + "/" + data.relDir
+	data.relDir = strings.Replace(data.dir, params.Src+"/", "", -1)
+	data.relPath = strings.Replace(path, params.Src+"/", "", -1)
+	data.metaDir = params.Src + "/" + DirMetadata + "/" + data.relDir
+	data.duplDir = params.Src + "/" + DirDuplicates + "/" + data.relDir
 
 	// Name without extension
 	data.name = strings.Replace(info.Name(), data.extension, "", -1)
@@ -276,15 +276,19 @@ func buildFileData(params appParams, path string, info os.FileInfo) (FileData, e
 	data.cameraModel = findCameraName(data)
 	data.creationTool = findCreationTool(data)
 
-	// Build dest file name and dirName
+	// Build Dest file name and dirName
 	destDir, destName := buildDestPaths(data)
 	data.dest.name = destName
 	data.dest.dirName = destDir
 	data.dest.extension = data.extension
-	data.dest.path = params.dest + "/" + data.dest.dirName + "/" + data.dest.name + data.dest.extension
+	data.dest.path = params.Dest + "/" + data.dest.dirName + "/" + data.dest.name + data.dest.extension
 
-	if pathExists(checksumPath(data.mediaType, checksum, params.dest)) || pathExists(data.dest.path) {
-		// Detect duplication by checksum or dest path
+	if pathExists(checksumPath(data.mediaType, checksum, params.Dest)) || pathExists(data.dest.path) {
+		// Detect duplication by checksum or Dest path
+		if filepath.Base(path) == filepath.Base(data.dest.path) {
+			// skip storing duplicate if same filename
+			data.flags.skipped = true
+		}
 		data.flags.unique = false
 		data.flags.duplicated = true
 		return data, nil
@@ -294,7 +298,7 @@ func buildFileData(params appParams, path string, info os.FileInfo) (FileData, e
 }
 
 func checksumPath(mediaType, checksum, rootPath string) string {
-	checksumRelPath := fmt.Sprintf("%s/%s/%s.txt", checksum[0:2], checksum[2:4], checksum)
+	checksumRelPath := fmt.Sprintf("%s/%s/%s.txt", checksum[0:2], checksum[2:3], checksum)
 	return fmt.Sprintf("%s/%s/%s/%s", rootPath, DirChecksums, mediaType, checksumRelPath)
 }
 
@@ -436,9 +440,6 @@ func findGoogleTakeoutTakenTimestamp(fileData FileData) string {
 
 	if !pathExists(filePath) {
 		filePath = fileData.metaDir + "/" + fileData.name + fileData.extension + ".takeout.json"
-		if pathExists(filePath) {
-			panic("takeout.json found in: " + filePath)
-		}
 	}
 
 	if !pathExists(filePath) {

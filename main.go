@@ -30,18 +30,18 @@ func main() {
 
 	fmt.Printf("\n")
 	action := "[CP]"
-	if *params.move {
+	if params.move {
 		action = "[MV]"
 	}
 
-	err = filepath.Walk(params.src, func(path string, info os.FileInfo, err error) error {
+	err = filepath.Walk(params.Src, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return err
 		}
 
 		// Print which path is being analysed
 		if info.IsDir() && !strings.ContainsAny(path, "#@") {
-			scannedDir := strings.Replace(path, params.src+"/", "", -1)
+			scannedDir := strings.Replace(path, params.Src+"/", "", -1)
 			if len(scannedDir) > 100 {
 				scannedDir = scannedDir[0:99] + "..."
 			}
@@ -53,22 +53,23 @@ func main() {
 		}
 
 		if regexp.MustCompile(RegexExcludeDirs).MatchString(path) {
-			params.total.skipped++
+			params.Total.Skipped++
 			return nil
 		}
 
-		processed := params.total.unique + params.total.duplicated
+		processed := params.Total.Unique + params.Total.Duplicated
 
-		if (*params.limit > 0) && (processed >= *params.limit) {
+		if (*params.Limit > 0) && (processed >= *params.Limit) {
 			return LimitExceededError
 		}
 
-		relPath := strings.Replace(path, params.src+"/", "", -1)
-		if len(relPath) > 100 {
-			relPath = relPath[0:99] + "..."
+		relPath := strings.Replace(path, params.Src+"/", "", -1)
+		if len(relPath) > 80 {
+			relPath = relPath[0:79] + "..."
 		}
 
-		logSameLn(">> %s Parsing: %s", action, relPath)
+		logSameLn(">> %s Processing: %s (%d / %d d / %d s)",
+			action, relPath, params.Total.Unique, params.Total.Duplicated, params.Total.Skipped)
 
 		data, err := buildFileData(params, path, info)
 
@@ -77,7 +78,7 @@ func main() {
 		}
 
 		if data.flags.skipped {
-			params.total.skipped++
+			params.Total.Skipped++
 			return nil
 		}
 
@@ -89,11 +90,11 @@ func main() {
 		}
 
 		if data.flags.unique {
-			params.total.unique++
+			params.Total.Unique++
 		}
 
 		if data.flags.duplicated {
-			params.total.duplicated++
+			params.Total.Duplicated++
 		}
 
 		return nil
@@ -105,7 +106,7 @@ func main() {
 		catch(err)
 	}
 
-	if !*params.dryRun {
+	if !*params.dryRun && (params.Total.Unique > 0) {
 		writeLogFile(params)
 	}
 

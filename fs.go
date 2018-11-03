@@ -33,7 +33,7 @@ func fileChecksum(path string) (string, error) {
 }
 
 func fileAppend(path, str string) {
-	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, PathPerms)
+	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, FilePerms)
 	if err != nil {
 		catch(err)
 	}
@@ -80,6 +80,6 @@ func fileMove(src, dest string) error {
 
 func makeDir(dir string) {
 	if !pathExists(dir) {
-		catch(os.MkdirAll(dir, PathPerms))
+		catch(os.MkdirAll(dir, DirPerms))
 	}
 }

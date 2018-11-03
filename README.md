@@ -1,6 +1,6 @@
-# Untangle
+# Happybox
 
-Untangle helps you organize your photos, videos and audios, all automatically.
+Happybox helps you organize your photos, videos and audios, all automatically.
 
 - Having thousands of pictures and videos lost in complex nested folder structures?
 - Don't you remember what camera or phone did you use to take that picture, or if it's even yours?
@@ -8,7 +8,7 @@ Untangle helps you organize your photos, videos and audios, all automatically.
 - Do you have many screen shots mixed up with your regular photos?
 - Do you have problems finding files from an specific date?
 
-No problemo! Untangle will organize all the mess for you.
+No problemo! Happybox will organize all the mess for you.
 
 ## Features
 
@@ -28,13 +28,17 @@ No problemo! Untangle will organize all the mess for you.
 ## Installation
 
 ```bash
-go install github.com/itsjavi/untangle
+go install github.com/itsjavi/happybox
 
 ```
 
 ## Usage
 
 ```bash
-untangle [-limit n] [-ext "xxx|yyy|zzz"] [-move] [-dry-run] <src> [<dest>]
+happybox [-limit n] [-ext "xxx|yyy|zzz"] [-dry-run] move|copy <src> [<dest>]
+
+# example:
+
+happybox -limit 100 -ext "jpg|png|gif" copy ~/Pictures ./happybox-test
 
 ```
