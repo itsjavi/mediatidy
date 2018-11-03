@@ -127,7 +127,7 @@ func storeFile(file FileData, params appParams) error {
 	if !pathExists(destFileTakeoutMeta) && pathExists(file.path + ".json") {
 		// Import Google Takeout metadata file
 		err := fileCopy(file.path+".json",
-			destDirMeta+"/"+file.dest.name+file.dest.extension+".takeout.json")
+			destDirMeta+"/"+file.dest.name+file.dest.extension+".takeout.json", true)
 		if err != nil {
 			return err
 		}
@@ -140,7 +140,7 @@ func storeFile(file FileData, params appParams) error {
 	if *params.move {
 		err = fileMove(file.path, destFile)
 	} else {
-		err = fileCopy(file.path, destFile)
+		err = fileCopy(file.path, destFile, true)
 	}
 
 	if err == nil {

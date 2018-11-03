@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
+	"runtime"
 )
 
 func pathExists(path string) bool {
@@ -43,7 +45,12 @@ func fileAppend(path, str string) {
 	}
 }
 
-func fileCopy(src, dest string) error {
+func fileCopy(src, dest string, keepAttributes bool) error {
+	if keepAttributes == true && runtime.GOOS != "windows" { // windows does not support cp nor preserving attributes
+		_, err := exec.Command("cp", "-pRP", src, dest).Output()
+
+		return err
+	}
 	s, err := os.Open(src)
 	if err != nil {
 		return err
