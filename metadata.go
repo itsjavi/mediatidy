@@ -313,7 +313,7 @@ func buildDestPaths(data FileData) (string, string) {
 	topic := data.topic
 
 	if data.cameraModel != "" {
-		topic = slug.Make(data.cameraModel)
+		topic = "cameras/" + slug.Make(data.cameraModel)
 	}
 
 	if data.mediaType != MediaTypeImages && topic == DefaultCameraModelFallback {
