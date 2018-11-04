@@ -42,3 +42,9 @@ happybox [-limit n] [-ext "xxx|yyy|zzz"] [-dry-run] [-fix-dates] move|copy <src>
 happybox -limit 100 -ext "jpg|png|gif" -fix-dates -dry-run copy ~/Pictures ./happybox-test
 
 ```
+
+# To-Do
+
+- Show total data copied (in MB or GB)
+- Add info command (outputs metadata in json of one file or array)
+-

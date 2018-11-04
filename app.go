@@ -8,21 +8,18 @@ import (
 	"io/ioutil"
 	"os"
 	"path"
-	"regexp"
 	"strings"
 	"time"
 )
 
 var LimitExceededError = errors.New("LIMIT EXCEEDED")
-var imageReg = regexp.MustCompile(RegexImage)
-var videoReg = regexp.MustCompile(RegexVideo)
-var audioReg = regexp.MustCompile(RegexAudio)
-var docsReg = regexp.MustCompile(RegexDocument)
 
 type appStats struct {
 	Unique     int
 	Duplicated int
 	Skipped    int
+	WithGPS    int
+	Size       int64
 }
 
 type appParams struct {
@@ -52,7 +49,7 @@ func writeLogOutput(params appParams) {
 }
 
 func createAppParams() (appParams, error) {
-	params := appParams{Date: time.Now().Format(time.RFC3339), Total: appStats{Unique: 0, Duplicated: 0, Skipped: 0}}
+	params := appParams{Date: formatDate(time.Now(), ""), Total: appStats{Unique: 0, Duplicated: 0, Skipped: 0}}
 	params.isAppDir = false
 	params.Limit = flag.Int("limit", 0, "Limit the amount of processed files. 0 = no Limit.")
 	params.dryRun = flag.Bool("dry-run", false, "If true, it won't do any write operations.")
@@ -105,17 +102,16 @@ func storeFile(file FileData, params appParams) error {
 		return nil
 	}
 
-	destDir := params.Dest + "/" + file.dest.DirName
-	destFileMeta := checksumPath(file.Checksum, file.dest.Extension, params.Dest)
+	destDir := params.Dest + "/" + file.Dest.DirName
+	destFileMeta := checksumPath(file.Checksum, file.Dest.Extension, params.Dest)
 
 	if file.flags.duplicated {
-		destDir = params.Dest + "/" + DirDuplicates + "/" + file.dest.DirName
-		destFileMeta = checksumPath(file.Checksum, file.dest.Extension, params.Dest+"/"+DirDuplicates)
+		destDir = params.Dest + "/" + DirDuplicates + "/" + file.Dest.DirName
+		destFileMeta = checksumPath(file.Checksum, file.Dest.Extension, params.Dest+"/"+DirDuplicates)
 	}
 
-	destFile := destDir + "/" + file.dest.Name + file.dest.Extension
+	destFile := destDir + "/" + file.Dest.Name + file.Dest.Extension
 	destDirMeta := path.Dir(destFileMeta)
-	destFileMeta += ".json"
 
 	if *params.dryRun {
 		logFileTransfer(file, params, destFile)
@@ -124,17 +120,6 @@ func storeFile(file FileData, params appParams) error {
 
 	if !pathExists(destDirMeta) {
 		makeDir(destDirMeta)
-	}
-
-	if !pathExists(destFileMeta) {
-		meta, err := json.Marshal(file)
-		if err != nil {
-			return err
-		}
-		err = ioutil.WriteFile(destFileMeta, meta, FilePerms)
-		if err != nil {
-			return err
-		}
 	}
 
 	makeDir(destDir)
@@ -147,17 +132,30 @@ func storeFile(file FileData, params appParams) error {
 		err = fileCopy(file.Path, destFile, true)
 	}
 
-	if *params.FixDates {
-		t, err := time.Parse(time.RFC3339, file.CreationTime)
-		mt, err2 := time.Parse(time.RFC3339, file.ModificationTime)
+	if isError(err) {
+		// Fatal on file copy/move errors
+		catch(err)
+	}
 
-		if err == nil && err2 == nil {
+	if *params.FixDates {
+		t, err := parseDate(time.RFC3339, file.CreationTime, file.Timezone)
+		mt, err2 := parseDate(time.RFC3339, file.ModificationTime, file.Timezone)
+
+		if !isError(err) && !isError(err2) {
 			fileFixDates(destFile, t, mt)
 		}
 	}
 
-	if err != nil {
-		catch(err)
+	// Write meta file in the last step, to be sure the file has been moved/copied successfully before
+	if !pathExists(destFileMeta) {
+		meta, err := json.Marshal(file)
+		if isError(err) {
+			return err
+		}
+		err = ioutil.WriteFile(destFileMeta, meta, FilePerms)
+		if isError(err) {
+			return err
+		}
 	}
 
 	return nil
