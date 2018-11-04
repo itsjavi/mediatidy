@@ -6,7 +6,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
-	"runtime"
+	"time"
 )
 
 func pathExists(path string) bool {
@@ -45,9 +45,24 @@ func fileAppend(path, str string) {
 	}
 }
 
+func fileFixDates(path string, creationDate time.Time, modificationDate time.Time) error {
+	if !IsUnix {
+		return nil
+	}
+	err := exec.Command("touch", "-t", creationDate.Format("200601021504.05"), path).Run()
+
+	if err != nil {
+		return err
+	}
+
+	err = exec.Command("touch", "-mt", modificationDate.Format("200601021504.05"), path).Run()
+
+	return err
+}
+
 func fileCopy(src, dest string, keepAttributes bool) error {
-	if keepAttributes == true && runtime.GOOS != "windows" { // windows does not support cp nor preserving attributes
-		_, err := exec.Command("cp", "-pRP", src, dest).Output()
+	if keepAttributes == true && IsUnix { // windows does not support cp nor preserving attributes
+		err := exec.Command("cp", "-pRP", src, dest).Run()
 
 		return err
 	}

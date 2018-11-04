@@ -28,14 +28,16 @@ type appStats struct {
 type appParams struct {
 	Src        string
 	Dest       string
-	move       bool
 	Command    string
 	Date       string
 	Total      appStats
-	isAppDir   bool // true if Src was created by this app
 	Limit      *int
-	dryRun     *bool
 	Extensions *string
+	FixDates   *bool
+	// private:
+	isAppDir bool // true if Src was created by this app
+	move     bool
+	dryRun   *bool
 }
 
 func writeLogOutput(params appParams) {
@@ -54,6 +56,7 @@ func createAppParams() (appParams, error) {
 	params.isAppDir = false
 	params.Limit = flag.Int("limit", 0, "Limit the amount of processed files. 0 = no Limit.")
 	params.dryRun = flag.Bool("dry-run", false, "If true, it won't do any write operations.")
+	params.FixDates = flag.Bool("fix-dates", false, "If true, creation an modification times will be fixed in the file attributes.")
 	params.Extensions = flag.String("ext", "", "Whitelist of file Extensions to work with")
 
 	flag.Parse()
@@ -76,7 +79,7 @@ func createAppParams() (appParams, error) {
 		return params, errors.New("missing argument 2: <Src>")
 	}
 
-	if pathExists(params.Src + "/" + DirMetadata) {
+	if pathExists(params.Src + "/" + DirApp) {
 		params.isAppDir = true
 	}
 
@@ -90,11 +93,11 @@ func createAppParams() (appParams, error) {
 func writeLogFile(params appParams) {
 	log, err := json.Marshal(params)
 	catch(err)
-	fileAppend(params.Dest+"/"+DirMetadata+"/"+AppName+".lsjson", fmt.Sprintf("%s", log)+"\n")
+	fileAppend(params.Dest+"/"+DirApp+"/"+AppName+".lsjson", fmt.Sprintf("%s", log)+"\n")
 }
 
 func logFileTransfer(file FileData, params appParams, destFile string) {
-	logSameLn("%s ---> %s", file.relPath, strings.Replace(destFile, params.Dest+"/", "", -1))
+	logSameLn("%s ---> %s", file.relativePath, strings.Replace(destFile, params.Dest+"/", "", -1))
 }
 
 func storeFile(file FileData, params appParams) error {
@@ -102,16 +105,15 @@ func storeFile(file FileData, params appParams) error {
 		return nil
 	}
 
-	destDir := params.Dest + "/" + file.dest.dirName
-	destFileMeta := checksumPath(file.checksum, file.dest.extension, params.Dest)
+	destDir := params.Dest + "/" + file.dest.DirName
+	destFileMeta := checksumPath(file.Checksum, file.dest.Extension, params.Dest)
 
 	if file.flags.duplicated {
-		destDir = params.Dest + "/" + DirDuplicates + "/" + file.dest.dirName
-		destFileMeta = checksumPath(file.checksum, file.dest.extension, params.Dest+"/"+DirDuplicates)
+		destDir = params.Dest + "/" + DirDuplicates + "/" + file.dest.DirName
+		destFileMeta = checksumPath(file.Checksum, file.dest.Extension, params.Dest+"/"+DirDuplicates)
 	}
 
-	destFile := destDir + "/" + file.dest.name + file.dest.extension
-	destFileMetaTakeout := destFileMeta + ".takeout.json"
+	destFile := destDir + "/" + file.dest.Name + file.dest.Extension
 	destDirMeta := path.Dir(destFileMeta)
 	destFileMeta += ".json"
 
@@ -125,16 +127,11 @@ func storeFile(file FileData, params appParams) error {
 	}
 
 	if !pathExists(destFileMeta) {
-		err := ioutil.WriteFile(destFileMeta, []byte(file.metadataRaw), FilePerms)
+		meta, err := json.Marshal(file)
 		if err != nil {
 			return err
 		}
-	}
-
-	if !pathExists(destFileMetaTakeout) && pathExists(file.path+".json") {
-		// Import Google Takeout metadata file
-		err := fileCopy(file.path+".json",
-			destFileMeta+"/"+file.dest.name+file.dest.extension+".takeout.json", true)
+		err = ioutil.WriteFile(destFileMeta, meta, FilePerms)
 		if err != nil {
 			return err
 		}
@@ -145,9 +142,18 @@ func storeFile(file FileData, params appParams) error {
 	var err error
 
 	if params.move {
-		err = fileMove(file.path, destFile)
+		err = fileMove(file.Path, destFile)
 	} else {
-		err = fileCopy(file.path, destFile, true)
+		err = fileCopy(file.Path, destFile, true)
+	}
+
+	if *params.FixDates {
+		t, err := time.Parse(time.RFC3339, file.CreationTime)
+		mt, err2 := time.Parse(time.RFC3339, file.ModificationTime)
+
+		if err == nil && err2 == nil {
+			fileFixDates(destFile, t, mt)
+		}
 	}
 
 	if err != nil {

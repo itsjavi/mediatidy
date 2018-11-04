@@ -7,7 +7,7 @@ import (
 
 func catch(e error, data ... interface{}) {
 	if e != nil {
-		fmt.Printf("%s\n", data)
+		logLn("%s\n", data)
 		panic(e)
 	}
 }

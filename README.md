@@ -22,7 +22,7 @@ No problemo! Happybox will organize all the mess for you.
 ## Requirements
 
 - [go](https://github.com/golang/go)
-- [exiftool](https://github.com/exiftool/exiftool)
+- [exiftool](https://github.com/exiftool/exiftool) (tested on v11.16)
 
 
 ## Installation
@@ -35,10 +35,10 @@ go install github.com/itsjavi/happybox
 ## Usage
 
 ```bash
-happybox [-limit n] [-ext "xxx|yyy|zzz"] [-dry-run] move|copy <src> [<dest>]
+happybox [-limit n] [-ext "xxx|yyy|zzz"] [-dry-run] [-fix-dates] move|copy <src> [<dest>]
 
 # example:
 
-happybox -limit 100 -ext "jpg|png|gif" copy ~/Pictures ./happybox-test
+happybox -limit 100 -ext "jpg|png|gif" -fix-dates -dry-run copy ~/Pictures ./happybox-test
 
 ```

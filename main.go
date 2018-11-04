@@ -48,12 +48,15 @@ func main() {
 			logSameLn(">> %s Analyzing: %s", action, scannedDir)
 		}
 
-		if info.IsDir() {
+		if regexp.MustCompile(RegexExcludeDirs).MatchString(path) {
+			if info.IsDir() {
+				return filepath.SkipDir
+			}
+			params.Total.Skipped++
 			return nil
 		}
 
-		if regexp.MustCompile(RegexExcludeDirs).MatchString(path) {
-			params.Total.Skipped++
+		if info.IsDir() {
 			return nil
 		}
 
