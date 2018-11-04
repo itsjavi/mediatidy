@@ -98,35 +98,31 @@ func logFileTransfer(file FileData, params appParams, destFile string) {
 }
 
 func storeFile(file FileData, params appParams) error {
+	if file.flags.skipped {
+		return nil
+	}
+
 	destDir := params.Dest + "/" + file.dest.dirName
-	destDirMeta := params.Dest + "/" + DirMetadata + "/" + file.dest.dirName
-	destFileChecksum := checksumPath(file.mediaType, file.checksum, params.Dest)
+	destFileMeta := checksumPath(file.checksum, file.dest.extension, params.Dest)
 
 	if file.flags.duplicated {
 		destDir = params.Dest + "/" + DirDuplicates + "/" + file.dest.dirName
-		destDirMeta = params.Dest + "/" + DirDuplicates + "/" + DirMetadata + "/" + file.dest.dirName
-		destFileChecksum = checksumPath(file.mediaType, file.checksum, params.Dest+"/"+DirDuplicates)
+		destFileMeta = checksumPath(file.checksum, file.dest.extension, params.Dest+"/"+DirDuplicates)
 	}
 
 	destFile := destDir + "/" + file.dest.name + file.dest.extension
-	destFileMeta := destDirMeta + "/" + file.dest.name + file.dest.extension + ".json"
-	destFileTakeoutMeta := destDirMeta + "/" + file.dest.name + file.dest.extension + ".takeout.json"
+	destFileMetaTakeout := destFileMeta + ".takeout.json"
+	destDirMeta := path.Dir(destFileMeta)
+	destFileMeta += ".json"
 
 	if *params.dryRun {
 		logFileTransfer(file, params, destFile)
 		return nil
 	}
 
-	if !pathExists(destFileChecksum) {
-		relDestPath := strings.Replace(file.dest.path, params.Dest+"/", "", -1)
-		makeDir(path.Dir(destFileChecksum))
-		err := ioutil.WriteFile(destFileChecksum, []byte(relDestPath), FilePerms)
-		if err != nil {
-			return err
-		}
+	if !pathExists(destDirMeta) {
+		makeDir(destDirMeta)
 	}
-
-	makeDir(destDirMeta)
 
 	if !pathExists(destFileMeta) {
 		err := ioutil.WriteFile(destFileMeta, []byte(file.metadataRaw), FilePerms)
@@ -135,10 +131,10 @@ func storeFile(file FileData, params appParams) error {
 		}
 	}
 
-	if !pathExists(destFileTakeoutMeta) && pathExists(file.path+".json") {
+	if !pathExists(destFileMetaTakeout) && pathExists(file.path+".json") {
 		// Import Google Takeout metadata file
 		err := fileCopy(file.path+".json",
-			destDirMeta+"/"+file.dest.name+file.dest.extension+".takeout.json", true)
+			destFileMeta+"/"+file.dest.name+file.dest.extension+".takeout.json", true)
 		if err != nil {
 			return err
 		}

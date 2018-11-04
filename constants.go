@@ -17,7 +17,6 @@ const (
 	DefaultCameraModelFallback = "other"
 
 	DirMetadata   = ".happybox"
-	DirChecksums  = ".happybox/.checksums"
 	DirDuplicates = "_happybox_duplicates"
 
 	RegexImage       = "(?i)\\.(jpg|jpeg|gif|png|webp|tiff|bmp|raw|svg)$"

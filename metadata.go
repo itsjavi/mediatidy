@@ -64,8 +64,6 @@ type FileData struct {
 	relPath          string
 	dir              string
 	relDir           string
-	metaDir          string
-	duplDir          string
 	dest             DestFile
 	name             string
 	nameSlug         string
@@ -167,31 +165,28 @@ func getMediaType(ext string) string {
 }
 
 func readMetadata(params appParams, file FileData) []byte {
-	// Search for an already existing app JSON metadata file in the Src path
-	fileRelDir := filepath.Dir(strings.Replace(file.path, params.Src+"/", "", -1))
-	srcMetaFile := params.Src + "/" + DirMetadata + "/" + fileRelDir + "/" +
-		file.name + file.extension + ".json"
-
-	if !pathExists(srcMetaFile) {
-		// try with filename.json (old format)
-		srcMetaFile = params.Src + "/" + DirMetadata + "/" + fileRelDir + "/" + file.name + ".json"
+	// Search for an already existing happybox-generated JSON metadata file
+	pathsLookup := []string{
+		// src, MD5
+		checksumPath(file.checksum, file.extension, params.Src) + ".json",
+		// dest, MD5
+		checksumPath(file.checksum, file.extension, params.Dest) + ".json",
+		// src, filename + ext
+		params.Src + "/" + DirMetadata + "/" + file.relDir + "/" + file.name + file.extension + ".json",
+		// dest, filename + ext
+		params.Dest + "/" + DirMetadata + "/" + file.relDir + "/" + file.name + file.extension + ".json",
+		// src, filename
+		params.Src + "/" + DirMetadata + "/" + file.relDir + "/" + file.name + ".json",
+		// dest, filename
+		params.Dest + "/" + DirMetadata + "/" + file.relDir + "/" + file.name + ".json",
 	}
 
-	if !pathExists(srcMetaFile) {
-		// try with Dest dir
-		srcMetaFile = params.Dest + "/" + DirMetadata + "/" + fileRelDir + "/" +
-			file.name + file.extension + ".json"
-	}
-
-	if !pathExists(srcMetaFile) {
-		// try with Dest dir (old format)
-		srcMetaFile = params.Dest + "/" + DirMetadata + "/" + fileRelDir + "/" + file.name + ".json"
-	}
-
-	if pathExists(srcMetaFile) {
-		metadataBytes, err := ioutil.ReadFile(srcMetaFile)
-		if err == nil {
-			return metadataBytes
+	for _, srcMetaFile := range pathsLookup {
+		if pathExists(srcMetaFile) {
+			metadataBytes, err := ioutil.ReadFile(srcMetaFile)
+			if err == nil {
+				return metadataBytes
+			}
 		}
 	}
 
@@ -240,11 +235,19 @@ func buildFileData(params appParams, path string, info os.FileInfo) (FileData, e
 		return data, nil
 	}
 
+	// MD5 checksum
+	checksum, err := fileChecksum(data.path)
+	if err != nil {
+		data.flags.skipped = true
+		return data, err
+	}
+
+	data.checksum = checksum
+	data.flags.unique = true
+
 	data.dir = filepath.Dir(path)
 	data.relDir = strings.Replace(data.dir, params.Src+"/", "", -1)
 	data.relPath = strings.Replace(path, params.Src+"/", "", -1)
-	data.metaDir = params.Src + "/" + DirMetadata + "/" + data.relDir
-	data.duplDir = params.Src + "/" + DirDuplicates + "/" + data.relDir
 
 	// Name without extension
 	data.name = strings.Replace(info.Name(), data.extension, "", -1)
@@ -258,18 +261,7 @@ func buildFileData(params appParams, path string, info os.FileInfo) (FileData, e
 	// Find file times
 	data.modificationTime = info.ModTime().Format(time.RFC3339)
 	data.creationTime = data.modificationTime
-	data.creationTime = findEarliestCreationDate(data)
-
-	data.flags.unique = true
-
-	// MD5 checksum
-	checksum, err := fileChecksum(data.path)
-	if err != nil {
-		data.flags.skipped = true
-		return data, err
-	}
-
-	data.checksum = checksum
+	data.creationTime = findEarliestCreationDate(data, params)
 
 	// Find creation tool, camera, topic
 	data.topic = findFileTopic(path)
@@ -283,8 +275,8 @@ func buildFileData(params appParams, path string, info os.FileInfo) (FileData, e
 	data.dest.extension = data.extension
 	data.dest.path = params.Dest + "/" + data.dest.dirName + "/" + data.dest.name + data.dest.extension
 
-	if pathExists(checksumPath(data.mediaType, checksum, params.Dest)) || pathExists(data.dest.path) {
-		// Detect duplication by checksum or Dest path
+	if pathExists(checksumPath(checksum, data.extension, params.Dest)) || pathExists(data.dest.path) {
+		// Detect duplication by checksum or Dest path (e.g. when trying to copy twice from same folder)
 		if filepath.Base(path) == filepath.Base(data.dest.path) {
 			// skip storing duplicate if same filename
 			data.flags.skipped = true
@@ -297,9 +289,9 @@ func buildFileData(params appParams, path string, info os.FileInfo) (FileData, e
 	return data, nil
 }
 
-func checksumPath(mediaType, checksum, rootPath string) string {
-	checksumRelPath := fmt.Sprintf("%s/%s/%s.txt", checksum[0:2], checksum[2:3], checksum)
-	return fmt.Sprintf("%s/%s/%s/%s", rootPath, DirChecksums, mediaType, checksumRelPath)
+func checksumPath(checksum, fileExtension, rootPath string) string {
+	checksumRelPath := fmt.Sprintf("%s/%s/%s%s", checksum[0:2], checksum[2:3], checksum, fileExtension)
+	return fmt.Sprintf("%s/%s/data/%s", rootPath, DirMetadata, checksumRelPath)
 }
 
 func buildDestPaths(data FileData) (string, string) {
@@ -389,14 +381,14 @@ func findCameraName(data FileData) string {
 	return strings.TrimSpace(camera)
 }
 
-func findEarliestCreationDate(data FileData) string {
+func findEarliestCreationDate(data FileData, params appParams) string {
 	var dates [6][2]string
 	var foundDates []time.Time
 	var creationDate time.Time
 
 	metadataDateFormat := "2006:01:02 15:04:05"
 
-	dates[0] = [2]string{findGoogleTakeoutTakenTimestamp(data), time.RFC3339}
+	dates[0] = [2]string{findGoogleTakeoutTakenTimestamp(data, params), time.RFC3339}
 	dates[1] = [2]string{data.modificationTime, time.RFC3339}
 	dates[2] = [2]string{data.metadata.CreateDate, metadataDateFormat}
 	dates[3] = [2]string{data.metadata.DateTimeOriginal, metadataDateFormat}
@@ -435,11 +427,11 @@ func findEarliestCreationDate(data FileData) string {
 	return creationDate.Format(time.RFC3339)
 }
 
-func findGoogleTakeoutTakenTimestamp(fileData FileData) string {
+func findGoogleTakeoutTakenTimestamp(fileData FileData, params appParams) string {
 	filePath := fileData.path + ".json"
 
 	if !pathExists(filePath) {
-		filePath = fileData.metaDir + "/" + fileData.name + fileData.extension + ".takeout.json"
+		filePath = checksumPath(fileData.checksum, fileData.extension, params.Src+"/"+DirMetadata) + ".takeout.json"
 	}
 
 	if !pathExists(filePath) {
