@@ -6,7 +6,7 @@ import (
 )
 
 const (
-	AppName = "happybox"
+	AppName = "happytimes"
 
 	CommandMove = "move"
 	CommandCopy = "copy"

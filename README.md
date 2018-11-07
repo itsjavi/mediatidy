@@ -1,6 +1,6 @@
-# Happybox
+# happytimes
 
-Happybox helps you organize your photos, videos and audios, all automatically.
+😊Command line tool that helps you classifying and organizing automagically your photos, videos, audios and documents ✨
 
 - Having thousands of pictures and videos lost in complex nested folder structures?
 - Don't you remember what camera or phone did you use to take that picture, or if it's even yours?
@@ -8,13 +8,14 @@ Happybox helps you organize your photos, videos and audios, all automatically.
 - Do you have many screen shots mixed up with your regular photos?
 - Do you have problems finding files from an specific date?
 
-No problemo! Happybox will organize all the mess for you.
+No problemo! This tool will organize all that mess for you.
 
 ## Features
 
-- Restructures a media folder recursively (pictures, videos, audios)
+- Restructures the content of a folder recursively (pictures, videos, audios, archives, contacts, documents, ...)
 - Extracts media file metadata (like EXIF, XMP) and saves it in a metadata folder
-- Organizes the media by year, camera and month
+- Organizes the media by year, camera / app and month
+- Detects screenshots (by path name)
 - Detects duplicates and stores them separately in a 'duplicates' folder
 - Renames all the files using the timestamp and the file MD5 hash
 
@@ -28,23 +29,17 @@ No problemo! Happybox will organize all the mess for you.
 ## Installation
 
 ```bash
-go install github.com/itsjavi/happybox
+go install github.com/itsjavi/happytimes
 
 ```
 
 ## Usage
 
 ```bash
-happybox [-limit n] [-ext "xxx|yyy|zzz"] [-dry-run] [-fix-dates] move|copy <src> [<dest>]
+happytimes [-limit n] [-ext "xxx|yyy|zzz"] [-dry-run] [-fix-dates] move|copy <src> [<dest>]
 
 # example:
 
-happybox -limit 100 -ext "jpg|png|gif" -fix-dates -dry-run copy ~/Pictures ./happybox-test
+happytimes -limit 100 -ext "jpg|png|gif" -fix-dates -dry-run copy ~/Pictures ./happytimes-test
 
 ```
-
-# To-Do
-
-- Show total data copied (in MB or GB)
-- Add info command (outputs metadata in json of one file or array)
--

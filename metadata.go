@@ -345,9 +345,9 @@ func buildFileData(params appParams, path string, info os.FileInfo) (FileData, e
 	data.CreationTime = findEarliestCreationDate(data, params)
 
 	// Find creation tool, camera, topic
-	data.Topic = findFileTopic(data.Metadata.SourceFile)
 	data.CameraModel = findCameraName(data)
 	data.CreationTool = findCreationTool(data)
+	data.Topic = findTopic(data.Metadata.SourceFile + "/" + data.Metadata.CreatorTool + "/" + data.CameraModel)
 
 	// Build Dest file name and dirName
 	destDir, destName := buildDestPaths(data)
@@ -417,24 +417,24 @@ func buildDestPaths(data FileData) (string, string) {
 	return data.MediaType + "/" + dateFolder, destFilename
 }
 
-func findFileTopic(path string) string {
+func findTopic(haystack string) string {
 	topic := DefaultCameraModelFallback
 	tools := map[string]string{
-		"music":       `(?i)(music|itunes|songs|lyric|singing|karaoke|track|bgm|sound)`,
+		"music": `(?i)(music|itunes|songs|lyric|singing|karaoke|track|bgm|sound)`,
 		//
 		"screenshots": `(?i)(Screen Shot|Screenshot|Captura)`,
 		//
-		"facebook":    `(?i)(facebook)`,
-		"instagram":   `(?i)(instagram)`,
-		"twitter":     `(?i)(twitter)`,
-		"whatsapp":    `(?i)(whatsapp)`,
-		"telegram":    `(?i)(telegram)`,
-		"messenger":   `(?i)(messenger)`,
-		"snapchat":    `(?i)(snapchat)`,
+		"facebook":  `(?i)(facebook)`,
+		"instagram": `(?i)(instagram)`,
+		"twitter":   `(?i)(twitter)`,
+		"whatsapp":  `(?i)(whatsapp)`,
+		"telegram":  `(?i)(telegram)`,
+		"messenger": `(?i)(messenger)`,
+		"snapchat":  `(?i)(snapchat)`,
 	}
 
 	for toolName, toolRegex := range tools {
-		if regexp.MustCompile(toolRegex).MatchString(path) {
+		if regexp.MustCompile(toolRegex).MatchString(haystack) {
 			return toolName
 		}
 	}
@@ -449,8 +449,8 @@ func findCreationTool(data FileData) string {
 		tool += data.Metadata.CreatorTool
 	}
 
-	if tool == "" && (data.Metadata.Software != "") {
-		tool += data.Metadata.Software
+	if data.Metadata.Software != "" {
+		tool += " " + data.Metadata.Software
 	}
 
 	return strings.TrimSpace(tool)
@@ -471,18 +471,19 @@ func findCameraName(data FileData) string {
 }
 
 func findEarliestCreationDate(data FileData, params appParams) string {
-	var dates [6][2]string
+	var dates [7][2]string
 	var foundDates []time.Time
 	var creationDate time.Time
 
-	metadataDateFormat := "2006:01:02 15:04:05" // 200601021504.05
+	metadataDateFormat := "2006:01:02 15:04:05"
 
-	dates[0] = [2]string{data.ModificationTime, DateFormat}
-	dates[1] = [2]string{data.Metadata.CreateDate, metadataDateFormat}
-	dates[2] = [2]string{data.Metadata.DateTimeOriginal, metadataDateFormat}
-	dates[3] = [2]string{data.Metadata.DateTimeDigitized, metadataDateFormat}
-	dates[4] = [2]string{data.Metadata.GPSDateTime, metadataDateFormat + "Z"}
-	dates[5] = [2]string{data.Metadata.FileModifyDate, metadataDateFormat + "+07:00"}
+	dates[0] = [2]string{GetPhotoTakenTime(data, params.Src), DateFormat}
+	dates[1] = [2]string{data.ModificationTime, DateFormat}
+	dates[2] = [2]string{data.Metadata.CreateDate, metadataDateFormat}
+	dates[3] = [2]string{data.Metadata.DateTimeOriginal, metadataDateFormat}
+	dates[4] = [2]string{data.Metadata.DateTimeDigitized, metadataDateFormat}
+	dates[5] = [2]string{data.Metadata.GPSDateTime, metadataDateFormat + "Z"}
+	dates[6] = [2]string{data.Metadata.FileModifyDate, metadataDateFormat + "+07:00"}
 
 	for _, val := range dates {
 		if val[0] == "" {
