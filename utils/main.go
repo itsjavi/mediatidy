@@ -1,18 +1,51 @@
-package main
+package utils
 
 import (
 	"fmt"
+	"runtime"
 	"strconv"
 	"strings"
+	"time"
 )
 
-type GPSCoord struct {
+const (
+	IsUnix = runtime.GOOS == "linux" || runtime.GOOS == "darwin" ||
+		runtime.GOOS == "android" || runtime.GOOS == "freebsd" || runtime.GOOS == "openbsd"
+	DefaultDateFormat = time.RFC3339
+	DefaultTimezone   = "Europe/Berlin"
+)
+
+func DateFormat(date time.Time, timezone string) string {
+	if timezone != "" {
+		loc, err := time.LoadLocation(timezone)
+		if !IsError(err) {
+			date = date.In(loc)
+		}
+	}
+
+	return date.Format(DefaultDateFormat)
+}
+
+func DateParse(layout string, value string, timezone string) (time.Time, error) {
+	t, err := time.Parse(layout, value)
+
+	if !IsError(err) && (timezone != "") {
+		loc, err := time.LoadLocation(timezone)
+		if !IsError(err) {
+			t = t.In(loc)
+		}
+	}
+
+	return t, err
+}
+
+type GPSPosition struct {
 	Latitude  float64
 	Longitude float64
 }
 
 // parses a string like `2 deg 38' 40.34" E`
-func parseGPSPositionPart(val string) float64 {
+func ParseGPSPositionPart(val string) float64 {
 	chunks := strings.Split(val, " ")
 
 	if len(chunks) != 5 {
@@ -34,31 +67,31 @@ func parseGPSPositionPart(val string) float64 {
 }
 
 // parses a string like `39 deg 34' 4.66" N, 2 deg 38' 40.34" E`
-func parseGPSPosition(position string) GPSCoord {
+func ParseGPSPosition(position string) GPSPosition {
 	latLng := strings.Split(strings.TrimSpace(position), ",")
 
 	if len(latLng) != 2 {
 		panic("Cannot parse GPS position: " + position)
 	}
 
-	lat := parseGPSPositionPart(strings.TrimSpace(latLng[0]))
-	lng := parseGPSPositionPart(strings.TrimSpace(latLng[1]))
+	lat := ParseGPSPositionPart(strings.TrimSpace(latLng[0]))
+	lng := ParseGPSPositionPart(strings.TrimSpace(latLng[1]))
 
-	return GPSCoord{lat, lng}
+	return GPSPosition{lat, lng}
 }
 
-func catch(e error, data ... interface{}) {
+func Catch(e error, data ... interface{}) {
 	if e != nil {
-		logLn("%s\n", data)
+		LogLn("%s\n", data)
 		panic(e)
 	}
 }
 
-func isError(e error) bool {
+func IsError(e error) bool {
 	return e != nil
 }
 
-func safeString(val interface{}) string {
+func ToString(val interface{}) string {
 	switch val.(type) {
 	case int:
 		return strconv.Itoa(val.(int))
@@ -69,11 +102,11 @@ func safeString(val interface{}) string {
 	}
 }
 
-func logLn(message string, a ...interface{}) {
+func LogLn(message string, a ...interface{}) {
 	fmt.Printf("["+AppName+"] "+message+"\n", a...)
 }
 
-func logSameLn(format string, args ... interface{}) {
+func LogSameLn(format string, args ... interface{}) {
 	fmt.Printf("\033[2K\r"+format, args...)
 }
 

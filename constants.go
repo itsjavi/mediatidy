@@ -1,7 +1,6 @@
 package main
 
 import (
-	"runtime"
 	"time"
 )
 
@@ -37,9 +36,4 @@ const (
 	RegexDocument    = "(?i)\\.(doc[x]?|xls[x]?|ppt[x]?|key|pages|numbers|md|pdf|psd|ai|afphoto|pxm|ics|ods|icns|rtf)$"
 	RegexArchive     = "(?i)\\.(zip|gz|tgz|tar|rar|7z|bak|mbox)$"
 	RegexExcludeDirs = "(?i)(\\.([a-z_0-9-]+)|/bower_components|/node_modules|/vendor|/Developer|/" + DirDuplicates + ")/.*$"
-
-	DirPerms  = 0755
-	FilePerms = 0644
-	IsUnix    = runtime.GOOS == "linux" || runtime.GOOS == "darwin" ||
-		runtime.GOOS == "android" || runtime.GOOS == "freebsd" || runtime.GOOS == "openbsd"
 )
