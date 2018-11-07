@@ -2,6 +2,14 @@
 
 
 [[projects]]
+  branch = "master"
+  digest = "1:ba1ad3d6c76aa0be912fb1265a281a0c0d4021c5b8e9a36039a467ac9ba106a1"
+  name = "github.com/bradfitz/latlong"
+  packages = ["."]
+  pruneopts = "UT"
+  revision = "f3db6d0dff40d47957be82e1a6645574fb041f95"
+
+[[projects]]
   digest = "1:336a3f4034b62469e9adf046b084fa7b8b756339d5cff9e61bbd810adece75d5"
   name = "github.com/gosimple/slug"
   packages = ["."]
@@ -20,6 +28,9 @@
 [solve-meta]
   analyzer-name = "dep"
   analyzer-version = 1
-  input-imports = ["github.com/gosimple/slug"]
+  input-imports = [
+    "github.com/bradfitz/latlong",
+    "github.com/gosimple/slug",
+  ]
   solver-name = "gps-cdcl"
   solver-version = 1

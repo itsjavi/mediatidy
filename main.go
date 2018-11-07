@@ -5,7 +5,6 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"strings"
 )
 
 /*
@@ -35,45 +34,51 @@ func main() {
 	}
 
 	err = filepath.Walk(params.Src, func(path string, info os.FileInfo, err error) error {
-		if err != nil {
+		if isError(err) {
 			return err
 		}
 
-		// Print which path is being analysed
-		if info.IsDir() && !strings.ContainsAny(path, "#@") {
-			scannedDir := strings.Replace(path, params.Src+"/", "", -1)
-			if len(scannedDir) > 100 {
-				scannedDir = scannedDir[0:99] + "..."
+		// Skip development-related sibling directories
+		if info.IsDir() && (pathExists(filepath.Dir(path)+"/.git") || pathExists(filepath.Dir(path)+"/.idea")) {
+			return filepath.SkipDir
+		}
+
+		if regexp.MustCompile(RegexExcludeDirs).MatchString(path) {
+			if info.IsDir() {
+				return filepath.SkipDir
 			}
-			logSameLn(">> %s Analyzing: %s", action, scannedDir)
+			params.Total.Skipped++
+			return nil
 		}
 
 		if info.IsDir() {
 			return nil
 		}
 
-		if regexp.MustCompile(RegexExcludeDirs).MatchString(path) {
-			params.Total.Skipped++
-			return nil
-		}
-
 		processed := params.Total.Unique + params.Total.Duplicated
 
-		if (*params.Limit > 0) && (processed >= *params.Limit) {
+		if (*params.Limit > 0) && (processed > *params.Limit) {
 			return LimitExceededError
 		}
 
-		relPath := strings.Replace(path, params.Src+"/", "", -1)
-		if len(relPath) > 80 {
-			relPath = relPath[0:79] + "..."
+		pathShort := ".../" + filepath.Base(filepath.Dir(path)) + "/" + filepath.Base(path)
+		if len(pathShort) > 50 {
+			pathShort = pathShort[0:49] + "..."
 		}
 
-		logSameLn(">> %s Processing: %s (%d / %d d / %d s)",
-			action, relPath, params.Total.Unique, params.Total.Duplicated, params.Total.Skipped)
+		logSameLn(">> [%s] %12v %8v %s %8v GPS %8v dup %8v skip  |  curr: %s",
+			AppName,
+			ByteCountToHumanReadable(params.Total.Size, false),
+			params.Total.Unique,
+			action,
+			params.Total.WithGPS,
+			params.Total.Duplicated, params.Total.Skipped,
+			pathShort,
+		)
 
 		data, err := buildFileData(params, path, info)
 
-		if err != nil {
+		if isError(err) {
 			return err
 		}
 
@@ -82,11 +87,14 @@ func main() {
 			return nil
 		}
 
-		// logSameLn(">> Storing: %s", relPath)
-
 		err = storeFile(data, params)
-		if err != nil {
+		if isError(err) {
 			return err
+		}
+
+		params.Total.Size += data.Size
+		if data.GPSTimezone != "" {
+			params.Total.WithGPS++
 		}
 
 		if data.flags.unique {

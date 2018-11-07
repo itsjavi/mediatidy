@@ -6,7 +6,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
-	"runtime"
+	"time"
 )
 
 func pathExists(path string) bool {
@@ -20,12 +20,12 @@ func fileChecksum(path string) (string, error) {
 	f, err := os.Open(path)
 	defer f.Close()
 
-	if err != nil {
+	if isError(err) {
 		return "", err
 	}
 
 	h := md5.New()
-	if _, err := io.Copy(h, f); err != nil {
+	if _, err := io.Copy(h, f); isError(err) {
 		return "", err
 	}
 
@@ -34,34 +34,49 @@ func fileChecksum(path string) (string, error) {
 
 func fileAppend(path, str string) {
 	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, FilePerms)
-	if err != nil {
+	if isError(err) {
 		catch(err)
 	}
 
 	defer f.Close()
 
-	if _, err = f.WriteString(str); err != nil {
+	if _, err = f.WriteString(str); isError(err) {
 		catch(err)
 	}
 }
 
+func fileFixDates(path string, creationDate time.Time, modificationDate time.Time) error {
+	if !IsUnix {
+		return nil
+	}
+	err := exec.Command("touch", "-t", creationDate.Format("200601021504.05"), path).Run()
+
+	if isError(err) {
+		return err
+	}
+
+	err = exec.Command("touch", "-mt", modificationDate.Format("200601021504.05"), path).Run()
+
+	return err
+}
+
 func fileCopy(src, dest string, keepAttributes bool) error {
-	if keepAttributes == true && runtime.GOOS != "windows" { // windows does not support cp nor preserving attributes
-		_, err := exec.Command("cp", "-pRP", src, dest).Output()
+	if keepAttributes == true && IsUnix { // windows does not support cp nor preserving attributes
+		err := exec.Command("cp", "-pRP", src, dest).Run()
 
 		return err
 	}
 	s, err := os.Open(src)
-	if err != nil {
+	if isError(err) {
 		return err
 	}
 
 	defer s.Close()
 	d, err := os.Create(dest)
-	if err != nil {
+	if isError(err) {
 		return err
 	}
-	if _, err := io.Copy(d, s); err != nil {
+	if _, err := io.Copy(d, s); isError(err) {
 		d.Close()
 		return err
 	}
@@ -71,7 +86,7 @@ func fileCopy(src, dest string, keepAttributes bool) error {
 func fileMove(src, dest string) error {
 	err := os.Rename(src, dest)
 
-	if err != nil {
+	if isError(err) {
 		return err
 	}
 
