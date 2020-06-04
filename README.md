@@ -1,4 +1,4 @@
-# happytimes
+# desktop-tidy
 
 😊Command line tool that helps you classifying and organizing automagically your photos, videos, audios and documents ✨
 
@@ -29,17 +29,17 @@ No problemo! This tool will organize all that mess for you.
 ## Installation
 
 ```bash
-go install github.com/itsjavi/happytimes
+go install github.com/itsjavi/desktop-tidy
 
 ```
 
 ## Usage
 
 ```bash
-happytimes [-limit n] [-ext "xxx|yyy|zzz"] [-dry-run] [-fix-dates] move|copy <src> [<dest>]
+desktop-tidy [-limit n] [-ext "xxx|yyy|zzz"] [-dry-run] [-fix-dates] move|copy <src> [<dest>]
 
 # example:
 
-happytimes -limit 100 -ext "jpg|png|gif" -fix-dates -dry-run copy ~/Pictures ./happytimes-test
+desktop-tidy -limit 100 -ext "jpg|png|gif" -fix-dates -dry-run copy ~/Pictures ./desktop-tidy-test
 
 ```
