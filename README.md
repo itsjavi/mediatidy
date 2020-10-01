@@ -1,50 +1,41 @@
-# _happytimes_
+# _tidymeup_
 
-😊Command line tool that helps you classifying and organizing automagically your photos, videos, audios and documents ✨
-
-- Having thousands of pictures and videos lost in infinitely nested folder structures?
-- Don't you remember what camera or phone did you use to take that picture, or if it's even yours?
-- Are you not sure if you have duplicates of the same picture?
-- Do you have many screen shots mixed up with your regular photos?
-- Do you have problems finding files from an specific date?
-
-No problem! _happytimes_ will organize all the mess for you. Rediscover all your data.
+Command-line tool written in Go to organize the image and video files of a folder recursively.
 
 ## Features
 
-- Restructures a folder recursively (pictures, videos, audios, documents, contacts, archives, ...)
-- Extracts media file metadata (like EXIF, XMP) and saves it in a metadata folder
-- Organizes the media by year, camera / app and month
-- Detects duplicates and stores them separately in a 'duplicates' folder
-- Slugizes the name of all the files and adds the original creation timestamp and the file MD5 hash
+- Organizes media (images and videos) by year, month and day folders.
+- Extracts metadata like EXIF and XMP in separated JSON files.
+- Detects duplicates and avoids using them, having priority the older files to be less destructive.
+- Normalizes the file names.
+- Converts old video formats to MP4 (H.264 + AAC).
+- Fixes file creation time, by using the one in the metadata if available.
 
 
 ## Requirements
 
-- [go >= v1.10](https://github.com/golang/go)
-- [exiftool (>= v11.10](https://github.com/exiftool/exiftool)
+- [go >= v1.15](https://github.com/golang/go)
+- [exiftool >= v11.80](https://github.com/exiftool/exiftool)
+- [ffmpeg >= 4.2](https://ffmpeg.org/)
 
 
 ## Installation
 
 ```bash
-go install github.com/itsjavi/happybox
+
+go install github.com/itsjavi/tidymeup
 
 ```
 
 ## Usage
 
 ```bash
-happybox [-limit n] [-ext "xxx|yyy|zzz"] [-dry-run] [-fix-dates] move|copy <src> [<dest>]
 
-# example:
+# All options:
 
-happybox -limit 100 -ext "jpg|png|gif" -fix-dates -dry-run copy ~/Pictures ./happybox-test
+tidymeup [-limit n] [-ext "xxx|yyy|zzz"] [-dry-run] [-fix-dates] move|copy <src> [<dest>]
+
+# Example:
+tidymeup -limit 100 -ext "jpg|png|gif" -fix-dates -dry-run copy ~/Pictures ~/Pictures-organised
 
 ```
-
-# To-Do
-
-- Show total data copied (in MB or GB)
-- Add info command (outputs metadata in json of one file or array)
--

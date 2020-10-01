@@ -1,122 +1,110 @@
 package main
 
 import (
+	"errors"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
-	"regexp"
+	"strings"
+	"time"
+
+	"github.com/urfave/cli/v2"
 )
 
-/*
-PHASES:
-1. Parse CLI arguments
-2. Walk path
-3. Check if path is file and readable
-4. Check if file is supported type
-5. Check if file is not too small
-6. Extract Metadata
-7. Build destination path name (media type, camera, date)
-8. Build destination filename (date/slug, file md5)
-9. Detect if absolute file destination path is a duplicate
-10. Move/copy file
-11. Create metadata JSON file
-12. Add entry into log file
- */
+const DateTimestampFormat = "2006:01:02 15:04:05"
+
+type CmdParams struct {
+	CurrentTime   time.Time
+	SrcDir        string
+	DestDir       string
+	DryRun        bool
+	Limit         uint
+	Extensions    []string
+	ConvertVideos bool
+	FixDates      bool
+	Move          bool
+}
 
 func main() {
-	params, err := createAppParams()
-	catch(err)
+	var app = &cli.App{
+		Usage:                  "Media file organizer",
+		Description:            "Organizes the image and video files of a folder recursively from source to destination.",
+		ArgsUsage:              "source destination",
+		UseShortOptionHandling: true,
+		Flags: []cli.Flag{
+			&cli.BoolFlag{
+				Name:    "dry-run",
+				Value:   false,
+				Aliases: []string{"d"},
+				Usage:   "Do not process anything, just scan the directory and metadata.",
+			},
+			&cli.UintFlag{
+				Name:    "limit",
+				Value:   0,
+				Aliases: []string{},
+				Usage:   "Limit of files to process.",
+			},
+			&cli.StringFlag{
+				Name:    "extensions",
+				Value:   "",
+				Aliases: []string{"ext"},
+				Usage:   "Pipe-separated list of file extensions to process, e.g. \"jpg|mp4|mov\".",
+			},
+			&cli.BoolFlag{
+				Name:    "convert-videos",
+				Value:   false,
+				Aliases: []string{"c"},
+				Usage:   "Convert old video formats like 3gp, flv, mpeg, wmv, divx, etc. to MP4.",
+			},
+			&cli.BoolFlag{
+				Name:    "fix-dates",
+				Value:   false,
+				Aliases: []string{"f"},
+				Usage:   "Fix the file creation date by using the one in the metadata, if available.",
+			},
+			&cli.BoolFlag{
+				Name:    "move",
+				Value:   false,
+				Aliases: []string{"m"},
+				Usage:   "Move the files instead of copying them to the destination.",
+			},
+		},
+		Action: func(c *cli.Context) error {
+			params := CmdParams{}
 
-	fmt.Printf("\n")
-	action := "[CP]"
-	if params.move {
-		action = "[MV]"
-	}
-
-	err = filepath.Walk(params.Src, func(path string, info os.FileInfo, err error) error {
-		if isError(err) {
-			return err
-		}
-
-		// Skip development-related sibling directories
-		if info.IsDir() && (pathExists(filepath.Dir(path)+"/.git") || pathExists(filepath.Dir(path)+"/.idea")) {
-			return filepath.SkipDir
-		}
-
-		if regexp.MustCompile(RegexExcludeDirs).MatchString(path) {
-			if info.IsDir() {
-				return filepath.SkipDir
+			if c.NArg() == 0 {
+				return errors.New("Error: Source directory argument is missing.")
 			}
-			params.Total.Skipped++
+			if c.NArg() < 2 {
+				return errors.New("Error: Destination directory argument is missing.")
+			}
+
+			params.CurrentTime = time.Now()
+			params.SrcDir, _ = filepath.Abs(c.Args().Get(0))
+			params.DestDir, _ = filepath.Abs(c.Args().Get(1))
+			params.DryRun = c.Bool("dry-run")
+			params.Limit = c.Uint("limit")
+			params.Extensions = strings.Split(c.String("extensions"), "|")
+			params.ConvertVideos = c.Bool("convert-videos")
+			params.FixDates = c.Bool("fix-dates")
+			params.Move = c.Bool("move")
+
+			if !DirExists(params.SrcDir) {
+				return errors.New("Error: Source directory does not exist.")
+			}
+
+			if DirExists(params.DestDir) {
+				return errors.New("Error: Destination directory already exists.")
+			}
+
+			fmt.Println("Parameters: ", params)
+
 			return nil
-		}
-
-		if info.IsDir() {
-			return nil
-		}
-
-		processed := params.Total.Unique + params.Total.Duplicated
-
-		if (*params.Limit > 0) && (processed > *params.Limit) {
-			return LimitExceededError
-		}
-
-		pathShort := ".../" + filepath.Base(filepath.Dir(path)) + "/" + filepath.Base(path)
-		if len(pathShort) > 50 {
-			pathShort = pathShort[0:49] + "..."
-		}
-
-		logSameLn(">> [%s] %12v %8v %s %8v GPS %8v dup %8v skip  |  curr: %s",
-			AppName,
-			ByteCountToHumanReadable(params.Total.Size, false),
-			params.Total.Unique,
-			action,
-			params.Total.WithGPS,
-			params.Total.Duplicated, params.Total.Skipped,
-			pathShort,
-		)
-
-		data, err := buildFileData(params, path, info)
-
-		if isError(err) {
-			return err
-		}
-
-		if data.flags.skipped {
-			params.Total.Skipped++
-			return nil
-		}
-
-		err = storeFile(data, params)
-		if isError(err) {
-			return err
-		}
-
-		params.Total.Size += data.Size
-		if data.GPSTimezone != "" {
-			params.Total.WithGPS++
-		}
-
-		if data.flags.unique {
-			params.Total.Unique++
-		}
-
-		if data.flags.duplicated {
-			params.Total.Duplicated++
-		}
-
-		return nil
-	})
-
-	fmt.Printf("\n\n")
-
-	if err != LimitExceededError {
-		catch(err)
+		},
 	}
-
-	if !*params.dryRun && (params.Total.Unique > 0) {
-		writeLogFile(params)
+	err := app.Run(os.Args)
+	if err != nil {
+		log.Fatal(err)
 	}
-
-	writeLogOutput(params)
 }
