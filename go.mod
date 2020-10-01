@@ -1,4 +1,4 @@
-module github.com/itsjavi/tidymeup
+module github.com/itsjavi/tidyupdir
 
 go 1.15
 

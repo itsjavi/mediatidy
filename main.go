@@ -74,7 +74,7 @@ func main() {
 			params := CmdParams{}
 
 			if c.NArg() == 0 {
-				return errors.New("Error: Source directory argument is missing.")
+				return errors.New("Error: Source and destination directory arguments are missing.")
 			}
 			if c.NArg() < 2 {
 				return errors.New("Error: Destination directory argument is missing.")
@@ -93,7 +93,6 @@ func main() {
 			if !DirExists(params.SrcDir) {
 				return errors.New("Error: Source directory does not exist.")
 			}
-
 			if DirExists(params.DestDir) {
 				return errors.New("Error: Destination directory already exists.")
 			}

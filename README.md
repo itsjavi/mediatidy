@@ -1,4 +1,4 @@
-# _tidymeup_
+# _tidyupdir_
 
 Command-line tool written in Go to organize the image and video files of a folder recursively.
 
@@ -23,7 +23,7 @@ Command-line tool written in Go to organize the image and video files of a folde
 
 ```bash
 
-go install github.com/itsjavi/tidymeup
+go install github.com/itsjavi/tidyupdir
 
 ```
 
@@ -31,11 +31,6 @@ go install github.com/itsjavi/tidymeup
 
 ```bash
 
-# All options:
-
-tidymeup [-limit n] [-ext "xxx|yyy|zzz"] [-dry-run] [-fix-dates] move|copy <src> [<dest>]
-
-# Example:
-tidymeup -limit 100 -ext "jpg|png|gif" -fix-dates -dry-run copy ~/Pictures ~/Pictures-organised
+tidyupdir --help
 
 ```
