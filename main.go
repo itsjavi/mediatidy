@@ -81,7 +81,7 @@ func main() {
 				return errors.New("Source and destination directories cannot be the same.")
 			}
 
-			stats, err := TidyUpDir(params)
+			stats, err := TidyUp(params)
 
 			printStats(stats)
 

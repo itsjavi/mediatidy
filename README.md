@@ -8,15 +8,17 @@ Command-line tool written in Go to organise all media files in a directory recur
 - Extracts metadata like EXIF and XMP in separated JSON files.
 - Detects duplicates and avoids using them, having priority the older files to be less destructive.
 - Normalizes the file names.
-- Converts old video formats to MP4 (H.264 + AAC).
 - Fixes file creation time, by using the one in the metadata if available.
 
+### Planned
+
+- Convert old video formats to MP4 (H.264 + AAC) while tidying up using [ffmpeg >= 4.2](https://ffmpeg.org/).
+- Add support for graceful command termination with signals and routines.
 
 ## Requirements
 
 - [go >= v1.15](https://github.com/golang/go)
 - [exiftool >= v11.80](https://github.com/exiftool/exiftool)
-- [ffmpeg >= 4.2](https://ffmpeg.org/)
 
 
 ## Installation
@@ -28,6 +30,8 @@ go install github.com/itsjavi/mediatidy
 ```
 
 ## Usage
+
+Check all the available options with the help command:
 
 ```bash
 
