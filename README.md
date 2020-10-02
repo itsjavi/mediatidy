@@ -1,6 +1,6 @@
-# _tidyupdir_
+# _mediatidy_
 
-Command-line tool written in Go to organize the image and video files of a folder recursively.
+Command-line tool written in Go to organise all media files in a directory recursively by date, detecting duplicates.
 
 ## Features
 
@@ -23,7 +23,7 @@ Command-line tool written in Go to organize the image and video files of a folde
 
 ```bash
 
-go install github.com/itsjavi/tidyupdir
+go install github.com/itsjavi/mediatidy
 
 ```
 
@@ -31,6 +31,6 @@ go install github.com/itsjavi/tidyupdir
 
 ```bash
 
-tidyupdir --help
+mediatidy --help
 
 ```
