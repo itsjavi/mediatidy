@@ -2,29 +2,12 @@ package main
 
 import (
 	"errors"
-	"fmt"
-	"log"
 	"os"
 	"path/filepath"
-	"strings"
 	"time"
 
 	"github.com/urfave/cli/v2"
 )
-
-const DateTimestampFormat = "2006:01:02 15:04:05"
-
-type CmdParams struct {
-	CurrentTime   time.Time
-	SrcDir        string
-	DestDir       string
-	DryRun        bool
-	Limit         uint
-	Extensions    []string
-	ConvertVideos bool
-	FixDates      bool
-	Move          bool
-}
 
 func main() {
 	var app = &cli.App{
@@ -71,13 +54,13 @@ func main() {
 			},
 		},
 		Action: func(c *cli.Context) error {
-			params := CmdParams{}
+			params := CmdOptions{}
 
 			if c.NArg() == 0 {
-				return errors.New("Error: Source and destination directory arguments are missing.")
+				return errors.New("Source and destination directory arguments are missing.")
 			}
 			if c.NArg() < 2 {
-				return errors.New("Error: Destination directory argument is missing.")
+				return errors.New("Destination directory argument is missing.")
 			}
 
 			params.CurrentTime = time.Now()
@@ -85,25 +68,26 @@ func main() {
 			params.DestDir, _ = filepath.Abs(c.Args().Get(1))
 			params.DryRun = c.Bool("dry-run")
 			params.Limit = c.Uint("limit")
-			params.Extensions = strings.Split(c.String("extensions"), "|")
+			params.Extensions = c.String("extensions")
 			params.ConvertVideos = c.Bool("convert-videos")
 			params.FixDates = c.Bool("fix-dates")
 			params.Move = c.Bool("move")
 
-			if !DirExists(params.SrcDir) {
-				return errors.New("Error: Source directory does not exist.")
-			}
-			if DirExists(params.DestDir) {
-				return errors.New("Error: Destination directory already exists.")
+			if !IsDir(params.SrcDir) {
+				return errors.New("Source directory does not exist.")
 			}
 
-			fmt.Println("Parameters: ", params)
+			if params.SrcDir == params.DestDir {
+				return errors.New("Source and destination directories cannot be the same.")
+			}
 
-			return nil
+			stats, err := TidyUpDir(params)
+
+			printStats(stats)
+
+			return err
 		},
 	}
 	err := app.Run(os.Args)
-	if err != nil {
-		log.Fatal(err)
-	}
+	HandleError(err)
 }
