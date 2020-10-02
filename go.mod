@@ -1,4 +1,4 @@
-module github.com/itsjavi/tidyupdir
+module github.com/itsjavi/mediatidy
 
 go 1.15
 
