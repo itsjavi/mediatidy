@@ -6,7 +6,7 @@ import (
 )
 
 const (
-	AppName = "tidyupdir"
+	AppName = "mediatidy"
 
 	IsUnix = runtime.GOOS == "linux" || runtime.GOOS == "darwin" || runtime.GOOS == "freebsd" || runtime.GOOS == "openbsd"
 
