@@ -1,162 +1,144 @@
 package main
 
 import (
-	"encoding/json"
-	"errors"
-	"flag"
 	"fmt"
 	"io/ioutil"
 	"os"
 	"path"
-	"strings"
+	"path/filepath"
+	"regexp"
 	"time"
 )
 
-var LimitExceededError = errors.New("LIMIT EXCEEDED")
+type TidyUpWalkFunc func(stats *CmdFileStats, path string, info os.FileInfo, err error) error
 
-type appStats struct {
-	Unique     int
-	Duplicated int
-	Skipped    int
-	WithGPS    int
-	Size       int64
+func TidyUpDir(params CmdOptions) (CmdFileStats, error) {
+	return walkDir(params, func(stats *CmdFileStats, path string, info os.FileInfo, err error) error {
+		fileData, err := GetFileMetadata(params, path, info)
+		HandleError(err)
+
+		if fileData.IsAlreadyImported {
+			stats.SkippedFiles++
+			return nil
+		}
+
+		if fileData.IsDuplication {
+			stats.SkippedFiles++
+			stats.DuplicatedFiles++
+			return nil
+		}
+
+		stats.ProcessedFiles++
+		stats.TotalSize += fileData.Size
+
+		return processFile(params, fileData)
+	})
 }
 
-type appParams struct {
-	Src        string
-	Dest       string
-	Command    string
-	Date       string
-	Total      appStats
-	Limit      *int
-	Extensions *string
-	FixDates   *bool
-	// private:
-	isAppDir bool // true if Src was created by this app
-	move     bool
-	dryRun   *bool
+func walkDir(params CmdOptions, processFileFunc TidyUpWalkFunc) (CmdFileStats, error) {
+	stats := CmdFileStats{}
+	return stats, filepath.Walk(params.SrcDir, func(path string, info os.FileInfo, err error) error {
+		if IsError(err) {
+			return err
+		}
+
+		if regexp.MustCompile(RegexExcludeDirs).MatchString(path) {
+			if info.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+
+		if info.IsDir() {
+			return nil
+		}
+
+		if !regexp.MustCompile(RegexImage).MatchString(path) &&
+			!regexp.MustCompile(RegexVideo).MatchString(path) {
+			stats.SkippedFiles++
+			return nil
+		}
+
+		fsize := info.Size()
+
+		// File is too small?
+		if fsize < int64(MinFileSize) {
+			stats.SkippedFiles++
+			return nil
+		}
+
+		// File extension is in allowed list?
+		if params.Extensions != "" && !regexp.MustCompile("(?i)\\.("+params.Extensions+")$").MatchString(path) {
+			stats.SkippedFiles++
+			return nil
+		}
+
+		return processFileFunc(&stats, path, info, err)
+	})
 }
 
-func writeLogOutput(params appParams) {
-	logVerb := "copied"
-
-	if params.move {
-		logVerb = "moved"
-	}
-
-	logLn("%d files (+%d duplicates, %d Skipped) %s from `%s` to `%s`",
-		params.Total.Unique, params.Total.Duplicated, params.Total.Skipped, logVerb, params.Src, params.Dest)
+func logFileTransfer(file FileMeta, prefix string) {
+	PrintReplaceLn(
+		"%s%s ---> %s",
+		prefix,
+		file.Source.Dirname+"/"+file.Source.Basename+file.Source.Extension,
+		file.Destination.Dirname+"/"+file.Destination.Basename+file.Destination.Extension,
+	)
 }
 
-func createAppParams() (appParams, error) {
-	params := appParams{Date: formatDate(time.Now(), ""), Total: appStats{Unique: 0, Duplicated: 0, Skipped: 0}}
-	params.isAppDir = false
-	params.Limit = flag.Int("limit", 0, "Limit the amount of processed files. 0 = no Limit.")
-	params.dryRun = flag.Bool("dry-run", false, "If true, it won't do any write operations.")
-	params.FixDates = flag.Bool("fix-dates", false, "If true, creation an modification times will be fixed in the file attributes.")
-	params.Extensions = flag.String("ext", "", "Whitelist of file Extensions to work with")
+func processFile(params CmdOptions, file FileMeta) error {
+	destDir := params.DestDir + "/" + file.Destination.Dirname
+	destFile := destDir + "/" + file.Destination.Basename + file.Destination.Extension
 
-	flag.Parse()
-
-	params.Command = strings.TrimRight(strings.TrimSpace(flag.Arg(0)), string(os.PathSeparator))
-	params.Src = strings.TrimRight(strings.TrimSpace(flag.Arg(1)), string(os.PathSeparator))
-	params.Dest = strings.TrimRight(strings.TrimSpace(flag.Arg(2)), string(os.PathSeparator))
-
-	switch params.Command {
-	case CommandMove:
-		params.move = true
-		break
-	case CommandCopy:
-		params.move = false
-	default:
-		return params, errors.New("invalid Command. Supported commands are: move, copy")
-	}
-
-	if params.Src == "" {
-		return params, errors.New("missing argument 2: <Src>")
-	}
-
-	if pathExists(params.Src + "/" + DirApp) {
-		params.isAppDir = true
-	}
-
-	if params.Dest == "" {
-		params.Dest = params.Src + "-" + AppName
-	}
-
-	return params, nil
-}
-
-func writeLogFile(params appParams) {
-	log, err := json.Marshal(params)
-	catch(err)
-	fileAppend(params.Dest+"/"+DirApp+"/"+AppName+".lsjson", fmt.Sprintf("%s", log)+"\n")
-}
-
-func logFileTransfer(file FileData, params appParams, destFile string) {
-	logSameLn("%s ---> %s", file.relativePath, strings.Replace(destFile, params.Dest+"/", "", -1))
-}
-
-func storeFile(file FileData, params appParams) error {
-	if file.flags.skipped {
-		return nil
-	}
-
-	destDir := params.Dest + "/" + file.Dest.DirName
-	destFileMeta := checksumPath(file.Checksum, file.Dest.Extension, params.Dest)
-
-	if file.flags.duplicated {
-		destDir = params.Dest + "/" + DirDuplicates + "/" + file.Dest.DirName
-		destFileMeta = checksumPath(file.Checksum, file.Dest.Extension, params.Dest+"/"+DirDuplicates)
-	}
-
-	destFile := destDir + "/" + file.Dest.Name + file.Dest.Extension
+	destFileMeta := file.MetadataPath.Path
 	destDirMeta := path.Dir(destFileMeta)
 
-	if *params.dryRun {
-		logFileTransfer(file, params, destFile)
+	if params.DryRun {
+		logFileTransfer(file, AppName+" [dry-drun] ")
 		return nil
 	}
 
-	if !pathExists(destDirMeta) {
-		makeDir(destDirMeta)
-	}
+	MakeDirIfNotExists(destDirMeta)
+	MakeDirIfNotExists(destDir)
 
-	makeDir(destDir)
+	// TODO: convert videos
 
-	var err error
-
-	if params.move {
-		err = fileMove(file.Path, destFile)
+	if params.Move {
+		HandleError(FileMove(file.Source.Path, destFile))
+		logFileTransfer(file, AppName+" [moving] ")
 	} else {
-		err = fileCopy(file.Path, destFile, true)
+		HandleError(FileCopy(file.Source.Path, destFile, true))
+		logFileTransfer(file, AppName+" [copying] ")
 	}
 
-	if isError(err) {
-		// Fatal on file copy/move errors
-		catch(err)
-	}
+	if params.FixDates {
+		ct, err := ParseDateWithTimezone(time.RFC3339, file.CreationTime, file.GPS.Timezone)
+		mt, err2 := ParseDateWithTimezone(time.RFC3339, file.ModificationTime, file.GPS.Timezone)
 
-	if *params.FixDates {
-		t, err := parseDate(time.RFC3339, file.CreationTime, file.Timezone)
-		mt, err2 := parseDate(time.RFC3339, file.ModificationTime, file.Timezone)
-
-		if !isError(err) && !isError(err2) {
-			fileFixDates(destFile, t, mt)
+		if !IsError(err) && !IsError(err2) {
+			HandleError(FileFixDates(destFile, ct, mt))
 		}
 	}
 
 	// Write meta file in the last step, to be sure the file has been moved/copied successfully before
-	if !pathExists(destFileMeta) {
-		meta, err := json.Marshal(file)
-		if isError(err) {
+	if !PathExists(destFileMeta) {
+		meta, err := JsonEncodePretty(file)
+		if IsError(err) {
 			return err
 		}
 		err = ioutil.WriteFile(destFileMeta, meta, FilePerms)
-		if isError(err) {
+		if IsError(err) {
 			return err
 		}
 	}
 
 	return nil
+}
+
+func printStats(stats CmdFileStats) {
+	fmt.Println("\nStats: ")
+	fmt.Printf("	- Duplicated Files: %s\n", ToString(stats.DuplicatedFiles))
+	fmt.Printf("	- Skipped Files: %s\n", ToString(stats.SkippedFiles))
+	fmt.Printf("	- Processed Files: %s\n", ToString(stats.ProcessedFiles))
+	fmt.Printf("	- Total Processed Size: %s\n", TotalBytesToString(stats.TotalSize, false))
 }

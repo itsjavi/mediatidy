@@ -1,45 +1,36 @@
-# desktop-tidy
+# _tidyupdir_
 
-😊Command line tool that helps you classifying and organizing automagically your photos, videos, audios and documents ✨
-
-- Having thousands of pictures and videos lost in complex nested folder structures?
-- Don't you remember what camera or phone did you use to take that picture, or if it's even yours?
-- Are you not sure if you have duplicates of the same picture?
-- Do you have many screen shots mixed up with your regular photos?
-- Do you have problems finding files from an specific date?
-
-No problemo! This tool will organize all that mess for you.
+Command-line tool written in Go to organize the image and video files of a folder recursively.
 
 ## Features
 
-- Restructures the content of a folder recursively (pictures, videos, audios, archives, contacts, documents, ...)
-- Extracts media file metadata (like EXIF, XMP) and saves it in a metadata folder
-- Organizes the media by year, camera / app and month
-- Detects screenshots (by path name)
-- Detects duplicates and stores them separately in a 'duplicates' folder
-- Renames all the files using the timestamp and the file MD5 hash
+- Organizes media (images and videos) by year, month and day folders.
+- Extracts metadata like EXIF and XMP in separated JSON files.
+- Detects duplicates and avoids using them, having priority the older files to be less destructive.
+- Normalizes the file names.
+- Converts old video formats to MP4 (H.264 + AAC).
+- Fixes file creation time, by using the one in the metadata if available.
 
 
 ## Requirements
 
-- [go](https://github.com/golang/go)
-- [exiftool](https://github.com/exiftool/exiftool) (tested on v11.16)
+- [go >= v1.15](https://github.com/golang/go)
+- [exiftool >= v11.80](https://github.com/exiftool/exiftool)
+- [ffmpeg >= 4.2](https://ffmpeg.org/)
 
 
 ## Installation
 
 ```bash
-go install github.com/itsjavi/desktop-tidy
+
+go install github.com/itsjavi/tidyupdir
 
 ```
 
 ## Usage
 
 ```bash
-desktop-tidy [-limit n] [-ext "xxx|yyy|zzz"] [-dry-run] [-fix-dates] move|copy <src> [<dest>]
 
-# example:
-
-desktop-tidy -limit 100 -ext "jpg|png|gif" -fix-dates -dry-run copy ~/Pictures ./desktop-tidy-test
+tidyupdir --help
 
 ```
