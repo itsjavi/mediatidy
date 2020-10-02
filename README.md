@@ -4,9 +4,9 @@ Command-line tool written in Go to organise all media files in a directory recur
 
 ## Features
 
-- Organizes media (images and videos) by year, month and day folders.
-- Extracts metadata like EXIF and XMP in separated JSON files.
-- Detects duplicates and avoids using them, having priority the older files to be less destructive.
+- Organizes media (images and videos) by year and month folders.
+- Extracts metadata like EXIF and XMP into separated JSON files.
+- Detects duplicates (by comparing file checksum) and skips moving/copying them.
 - Normalizes the file names.
 - Fixes file creation time, by using the one in the metadata if available.
 
@@ -14,6 +14,8 @@ Command-line tool written in Go to organise all media files in a directory recur
 
 - Convert old video formats to MP4 (H.264 + AAC) while tidying up using [ffmpeg >= 4.2](https://ffmpeg.org/).
 - Add support for graceful command termination with signals and routines.
+- Build a SQLite database with all extracted metadata.
+- Build a GUI for the media files, similar to macOS Photos, that will use the SQLite DB (probably under a different repo).
 
 ## Requirements
 
