@@ -7,6 +7,8 @@ import (
 	"log"
 	"strconv"
 	"time"
+
+	tm "github.com/buger/goterm"
 )
 
 func IsError(e error) bool {
@@ -24,7 +26,10 @@ func PrintLn(template string, args ...interface{}) {
 }
 
 func PrintReplaceLn(template string, args ...interface{}) {
-	fmt.Printf("\033[2K\r"+template, args...)
+	tm.Clear()
+	tm.MoveCursor(1,1)
+	tm.Printf(template, args...)
+	tm.Flush()
 }
 
 func TotalBytesToString(b int64, useDecimalSystem bool) string {
@@ -91,7 +96,6 @@ func GetJsonMapValue(dataMap RawJsonMap, key string) string {
 
 	return ""
 }
-
 
 func JsonEncodePretty(v interface{}) ([]byte, error) {
 	meta, err := json.Marshal(v)

@@ -16,6 +16,7 @@ type CmdOptions struct {
 	ConvertVideos bool
 	FixDates      bool
 	Move          bool
+	Quiet         bool
 }
 
 type CmdFileStats struct {

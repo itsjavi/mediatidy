@@ -1,7 +1,7 @@
 package main
 
 import (
-	"fmt"
+	tm "github.com/buger/goterm"
 	"io/ioutil"
 	"os"
 	"path"
@@ -12,26 +12,43 @@ import (
 
 type TidyUpWalkFunc func(stats *CmdFileStats, path string, info os.FileInfo, err error) error
 
+func tidyUpFile(params CmdOptions, stats *CmdFileStats, path string, info os.FileInfo, err error) (FileMeta, error) {
+	HandleError(err)
+
+	fileData, err := GetFileMetadata(params, path, info)
+	HandleError(err)
+
+	if fileData.IsAlreadyImported {
+		stats.SkippedFiles++
+		return fileData, nil
+	}
+
+	if fileData.IsDuplication {
+		stats.SkippedFiles++
+		stats.DuplicatedFiles++
+		return fileData, nil
+	}
+
+	stats.ProcessedFiles++
+	stats.TotalSize += fileData.Size
+
+	return fileData, processFile(params, fileData)
+}
+
 func TidyUp(params CmdOptions) (CmdFileStats, error) {
 	return walkDir(params, func(stats *CmdFileStats, path string, info os.FileInfo, err error) error {
-		fileData, err := GetFileMetadata(params, path, info)
 		HandleError(err)
 
-		if fileData.IsAlreadyImported {
-			stats.SkippedFiles++
-			return nil
+		fileMeta, err := tidyUpFile(params, stats, path, info, err)
+		if IsError(err) {
+			return err
 		}
 
-		if fileData.IsDuplication {
-			stats.SkippedFiles++
-			stats.DuplicatedFiles++
-			return nil
+		if params.Quiet == false {
+			printProgress(fileMeta, *stats)
 		}
 
-		stats.ProcessedFiles++
-		stats.TotalSize += fileData.Size
-
-		return processFile(params, fileData)
+		return nil
 	})
 }
 
@@ -77,15 +94,6 @@ func walkDir(params CmdOptions, processFileFunc TidyUpWalkFunc) (CmdFileStats, e
 	})
 }
 
-func logFileTransfer(file FileMeta, prefix string) {
-	PrintReplaceLn(
-		"%s%s ---> %s",
-		prefix,
-		file.Source.Dirname+"/"+file.Source.Basename+file.Source.Extension,
-		file.Destination.Dirname+"/"+file.Destination.Basename+file.Destination.Extension,
-	)
-}
-
 func processFile(params CmdOptions, file FileMeta) error {
 	destDir := params.DestDir + "/" + file.Destination.Dirname
 	destFile := destDir + "/" + file.Destination.Basename + file.Destination.Extension
@@ -94,7 +102,6 @@ func processFile(params CmdOptions, file FileMeta) error {
 	destDirMeta := path.Dir(destFileMeta)
 
 	if params.DryRun {
-		logFileTransfer(file, AppName+" [dry-drun] ")
 		return nil
 	}
 
@@ -105,10 +112,8 @@ func processFile(params CmdOptions, file FileMeta) error {
 
 	if params.Move {
 		HandleError(FileMove(file.Source.Path, destFile))
-		logFileTransfer(file, AppName+" [moving] ")
 	} else {
 		HandleError(FileCopy(file.Source.Path, destFile, true))
-		logFileTransfer(file, AppName+" [copying] ")
 	}
 
 	if params.FixDates {
@@ -135,10 +140,14 @@ func processFile(params CmdOptions, file FileMeta) error {
 	return nil
 }
 
-func printStats(stats CmdFileStats) {
-	fmt.Println("\nStats: ")
-	fmt.Printf("	- Duplicated Files: %s\n", ToString(stats.DuplicatedFiles))
-	fmt.Printf("	- Skipped Files: %s\n", ToString(stats.SkippedFiles))
-	fmt.Printf("	- Processed Files: %s\n", ToString(stats.ProcessedFiles))
-	fmt.Printf("	- Total Processed Size: %s\n", TotalBytesToString(stats.TotalSize, false))
+func printProgress(currentFile FileMeta, stats CmdFileStats) {
+	PrintReplaceLn(
+		"[%s] "+tm.Color(tm.Bold("Stats: %s duplicates / %s skipped / %s processed / %s total size"), tm.YELLOW)+" / file: %s",
+		AppName,
+		ToString(stats.DuplicatedFiles),
+		ToString(stats.SkippedFiles),
+		ToString(stats.ProcessedFiles),
+		TotalBytesToString(stats.TotalSize, false),
+		currentFile.Source.Path,
+	)
 }

@@ -52,6 +52,12 @@ func main() {
 				Aliases: []string{"m"},
 				Usage:   "Move the files instead of copying them to the destination.",
 			},
+			&cli.BoolFlag{
+				Name:    "quiet",
+				Value:   false,
+				Aliases: []string{"q"},
+				Usage:   "It won't print anything, unless it's an error.",
+			},
 		},
 		Action: func(c *cli.Context) error {
 			params := CmdOptions{}
@@ -72,6 +78,7 @@ func main() {
 			params.ConvertVideos = c.Bool("convert-videos")
 			params.FixDates = c.Bool("fix-dates")
 			params.Move = c.Bool("move")
+			params.Quiet = c.Bool("quiet")
 
 			if !IsDir(params.SrcDir) {
 				return errors.New("Source directory does not exist.")
@@ -81,9 +88,7 @@ func main() {
 				return errors.New("Source and destination directories cannot be the same.")
 			}
 
-			stats, err := TidyUp(params)
-
-			printStats(stats)
+			_, err := TidyUp(params)
 
 			return err
 		},
