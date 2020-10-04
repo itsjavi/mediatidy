@@ -15,7 +15,7 @@ const (
 	FilePerms   = 0644
 
 	DirMetadata        = "metadata"
-	DbFile             = "metadata/" + AppName + ".sqlite"
+	DbFile             = "metadata.sqlite"
 	DirVideos          = "originals"
 	DirImages          = "originals"
 	DirVideosConverted = "converted"

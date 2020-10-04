@@ -46,68 +46,73 @@ type ExifToolData struct {
 	Duration          string
 	MediaDuration     string
 	TrackDuration     string
+	FullJsonDump      string
 }
 
-type ExifData struct {
-	Data        ExifToolData
-	DataDump    RawJsonMap
-	DataDumpRaw string
+func GetFileMetadata2() {
+	//1. if in src db, use that FileMeta with that exif
+	// otherwise create new FileMeta and parse exif
+	//2. re-apply exif data special parsers (GPS, etc)
+	//3. complete fields not saved in DB
 }
 
-func GetFileMetadata(params CmdOptions, path string, info os.FileInfo) (FileMeta, error) {
-	ext := strings.ToLower(filepath.Ext(path))
+func GetFileMetadata(ctx AppContext, path string, info os.FileInfo) (FileMeta, error) {
+	fileExtension := strings.ToLower(filepath.Ext(path))
 
-	fdata := FileMeta{
-		Source: FilePathInfo{
+	fileMeta := FileMeta{
+		Origin: FilePathInfo{
 			Path:      path,
-			Basename:  strings.Replace(info.Name(), ext, "", -1),
+			Basename:  strings.Replace(info.Name(), fileExtension, "", -1),
 			Dirname:   filepath.Dir(path),
-			Extension: ext,
+			Extension: fileExtension,
 		},
-		Size:              info.Size(),
-		Checksum:          FileCalcChecksum(path),
-		MediaType:         getMediaType(ext),
-		IsDuplication:     false,
-		IsAlreadyImported: false,
+		Size:                        info.Size(),
+		Checksum:                    FileCalcChecksum(path),
+		MediaType:                   getMediaType(fileExtension),
+		IsDuplicationByChecksum:     false,
+		IsDuplicationByDestBasename: false,
 	}
 
 	// Parse metadata
-	fdata.Exif = parseMetadata(params, fdata)
-	fdata.GPS = GPSDataParse(fdata.Exif.Data.GPSPosition, fdata.Exif.Data.GPSAltitude)
+	fileMeta.Exif = parseMetadata(ctx, fileMeta)
+	gpsData := GPSDataParse(fileMeta.Exif.GPSPosition, fileMeta.Exif.GPSAltitude)
+	fileMeta.GPSAltitude = gpsData.Position.Altitude
+	fileMeta.GPSLatitude = ToString(gpsData.Position.Latitude)
+	fileMeta.GPSLongitude = ToString(gpsData.Position.Longitude)
+	fileMeta.GPSTimezone = gpsData.Timezone
 
 	// Find file times
-	fdata.ModificationTime = info.ModTime().Format(DateLayout)
-	fdata.CreationTime = fdata.ModificationTime
-	fdata.CreationTime = parseEarliestCreationDate(fdata)
+	fileMeta.ModificationDate = info.ModTime().Format(DateLayout)
+	fileMeta.CreationDate = fileMeta.ModificationDate
+	fileMeta.CreationDate = parseEarliestCreationDate(fileMeta)
 
 	// Find creation tool, camera, topic
-	fdata.CameraModel = parseExifCameraName(fdata.Exif.Data)
-	fdata.CreationTool = parseExifCreationTool(fdata.Exif.Data)
-	fdata.ImageWidth = fdata.Exif.Data.ImageWidth
-	fdata.ImageHeight = fdata.Exif.Data.ImageHeight
-	fdata.Duration = ParseMediaDuration(fdata.Exif.Data)
-	fdata.IsScreenShot = isScreenShot(fdata.Source.Path +
-		":" + fdata.Exif.Data.SourceFile +
-		":" + fdata.Exif.Data.CreatorTool +
-		":" + fdata.CameraModel)
+	fileMeta.CameraModel = parseExifCameraName(fileMeta.Exif)
+	fileMeta.CreationTool = parseExifCreationTool(fileMeta.Exif)
+	fileMeta.Width = fileMeta.Exif.ImageWidth
+	fileMeta.Height = fileMeta.Exif.ImageHeight
+	fileMeta.Duration = ParseMediaDuration(fileMeta.Exif)
+	fileMeta.IsScreenShot = isScreenShot(fileMeta.Origin.Path +
+		":" + fileMeta.Exif.SourceFile +
+		":" + fileMeta.Exif.CreatorTool +
+		":" + fileMeta.CameraModel)
 
 	// Build Destination file name and dirName
-	fdata.Destination = buildDestination(params.DestDir, fdata)
-	fdata.MetadataPath = buildChecksumPath(params.DestDir, fdata.Checksum, fdata.Source.Extension)
-	alreadyExists := PathExists(fdata.Destination.Path) || PathExists(fdata.MetadataPath.Path)
+	fileMeta.Destination = buildDestination(ctx.DestDir, fileMeta)
+	alreadyExists := PathExists(fileMeta.Destination.Path) || ctx.Db.HasFileMetaByChecksum(fileMeta.Checksum)
 
 	if alreadyExists {
 		// Detect duplication by checksum or Destination path (e.g. when trying to copy twice from same folder)
-		if filepath.Base(path) == filepath.Base(fdata.Destination.Path) {
+		if filepath.Base(path) == filepath.Base(fileMeta.Destination.Path) {
 			// skip storing duplicate if same filename
-			fdata.IsAlreadyImported = true
-			return fdata, nil
+			fileMeta.IsDuplicationByDestBasename = true
+			return fileMeta, nil
 		}
-		fdata.IsDuplication = true
-		return fdata, nil
+		fileMeta.IsDuplicationByChecksum = true
+		return fileMeta, nil
 	}
 
-	return fdata, nil
+	return fileMeta, nil
 }
 
 func buildChecksumPath(destDirRoot string, checksum string, fileExtension string) FilePathInfo {
@@ -125,17 +130,18 @@ func buildChecksumPath(destDirRoot string, checksum string, fileExtension string
 }
 
 func buildDestination(destDirRoot string, data FileMeta) FilePathInfo {
-	t, err := time.Parse(time.RFC3339, data.CreationTime)
+	t, err := time.Parse(time.RFC3339, data.CreationDate)
 	HandleError(err)
 
-	ext := sanitizeExtension(data.Source.Extension)
+	ext := sanitizeExtension(data.Origin.Extension)
 
 	var dateFolder, destFilename string
 
 	dateFolder = fmt.Sprintf("%d/%02d", t.Year(), t.Month())
+	//dateFolder = fmt.Sprintf("%d/%02d-%02d", t.Year(), t.Month(), t.Day())
 
-	destFilename = fmt.Sprintf("%d%02d%02d-%02d%02d%02d", t.Year(), t.Month(), t.Day(),
-		t.Hour(), t.Minute(), t.Second()) + "-" + data.Checksum
+	destFilename = fmt.Sprintf("%d%02d%02d%02d%02d%02d", t.Year(), t.Month(), t.Day(),
+		t.Hour(), t.Minute(), t.Second()) + "-" + data.Checksum[0:6]
 
 	destDirName := getMediaTypeDir(data.MediaType) + "/" + dateFolder
 
@@ -241,12 +247,12 @@ func parseEarliestCreationDate(data FileMeta) string {
 
 	metadataDateFormat := "2006:01:02 15:04:05"
 
-	dates[0] = [2]string{data.ModificationTime, DateLayout}
-	dates[1] = [2]string{data.Exif.Data.CreateDate, metadataDateFormat}
-	dates[2] = [2]string{data.Exif.Data.DateTimeOriginal, metadataDateFormat}
-	dates[3] = [2]string{data.Exif.Data.DateTimeDigitized, metadataDateFormat}
-	dates[4] = [2]string{data.Exif.Data.GPSDateTime, metadataDateFormat + "Z"}
-	dates[5] = [2]string{data.Exif.Data.FileModifyDate, metadataDateFormat + "+07:00"}
+	dates[0] = [2]string{data.ModificationDate, DateLayout}
+	dates[1] = [2]string{data.Exif.CreateDate, metadataDateFormat}
+	dates[2] = [2]string{data.Exif.DateTimeOriginal, metadataDateFormat}
+	dates[3] = [2]string{data.Exif.DateTimeDigitized, metadataDateFormat}
+	dates[4] = [2]string{data.Exif.GPSDateTime, metadataDateFormat + "Z"}
+	dates[5] = [2]string{data.Exif.FileModifyDate, metadataDateFormat + "+07:00"}
 
 	for _, val := range dates {
 		if val[0] == "" {
@@ -273,28 +279,23 @@ func parseEarliestCreationDate(data FileMeta) string {
 	}
 
 	if creationDate.IsZero() {
-		return data.ModificationTime
+		return data.ModificationDate
 	}
 
-	return FormatDateWithTimezone(creationDate, data.GPS.Timezone)
+	return FormatDateWithTimezone(creationDate, data.GPSTimezone)
 }
 
-func parseMetadata(params CmdOptions, fdata FileMeta) ExifData {
+func parseMetadata(params AppContext, fdata FileMeta) ExifToolData {
 	metadataBytes := readExifMetadata(params, fdata)
 
 	var metadataByteArr []RawJsonMap
 	jsonerr := json.Unmarshal(metadataBytes, &metadataByteArr)
+	HandleError(jsonerr)
 
-	exifData := ExifData{
-		Data:        ParseExifMetadata(metadataBytes),
-		DataDumpRaw: string(metadataBytes),
-	}
+	exif := ParseExifMetadata(metadataBytes)
+	exif.FullJsonDump = string(metadataBytes)
 
-	if !IsError(jsonerr) && len(metadataByteArr) > 0 {
-		exifData.DataDump = metadataByteArr[0]
-	}
-
-	return exifData
+	return exif
 }
 
 func ParseExifMetadata(jsonData []byte) ExifToolData {
@@ -338,13 +339,19 @@ func ParseExifMetadata(jsonData []byte) ExifToolData {
 	return ds
 }
 
-func readExifMetadata(params CmdOptions, file FileMeta) []byte {
+func readExifMetadata(ctx AppContext, file FileMeta) []byte {
+	//if ctx.HasMetadataDb(ctx.SrcDir) {
+	//	tmpCtx := AppContext{}
+	//	tmpCtx.InitDb(ctx.SrcDir)
+	//	foundFileMeta, found, err := tmpCtx.Db.FindFileMetaByChecksum(file.Checksum)
+	//}
+
 	// Search for an already existing JSON metadata file
 	pathsLookup := []string{
 		// src, MD5
-		buildChecksumPath(params.SrcDir, file.Checksum, file.Source.Extension).Path,
+		buildChecksumPath(ctx.SrcDir, file.Checksum, file.Origin.Extension).Path,
 		// dest, MD5
-		buildChecksumPath(params.DestDir, file.Checksum, file.Source.Extension).Path,
+		buildChecksumPath(ctx.DestDir, file.Checksum, file.Origin.Extension).Path,
 	}
 
 	for _, srcMetaFile := range pathsLookup {
@@ -354,14 +361,14 @@ func readExifMetadata(params CmdOptions, file FileMeta) []byte {
 				var meta FileMeta
 				jsonerr := json.Unmarshal(metadataBytes, &meta)
 				HandleError(jsonerr)
-				return []byte(meta.Exif.DataDumpRaw)
+				return []byte(meta.Exif.FullJsonDump)
 			}
 		}
 	}
 
-	fallbackMetadata := []byte(`[{"SourceFile":"` + file.Source.Path + `", "Error": true}]`)
+	fallbackMetadata := []byte(`[{"SourceFile":"` + file.Origin.Path + `", "Error": true}]`)
 
-	jsonBytes, err := exec.Command("exiftool", file.Source.Path, "-json").Output()
+	jsonBytes, err := exec.Command("exiftool", file.Origin.Path, "-json").Output()
 	if IsError(err) {
 		return fallbackMetadata
 	}

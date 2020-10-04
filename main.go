@@ -2,7 +2,6 @@ package main
 
 import (
 	"errors"
-	"fmt"
 	"os"
 	"path/filepath"
 	"time"
@@ -14,19 +13,33 @@ func main() {
 	var app = &cli.App{
 		Usage:                  "Media file organizer",
 		UseShortOptionHandling: true,
+		Flags: []cli.Flag{
+			&cli.BoolFlag{
+				Name:    "dry-run",
+				Value:   false,
+				Aliases: []string{"d"},
+				Usage:   "Do not process anything, just scan the directory and metadata.",
+			},
+			&cli.BoolFlag{
+				Name:    "quiet",
+				Value:   false,
+				Aliases: []string{"q"},
+				Usage:   "It won't print anything, unless it's an error.",
+			},
+		},
 		Commands: []*cli.Command{
 			{
-				Name:        "organize",
+				Name:        "run",
 				Usage:       "Organizes source folder media into a destination folder.",
 				Description: "Organizes the image and video files of a folder recursively from source to destination.",
 				ArgsUsage:   "source destination",
 				Flags: []cli.Flag{
-					&cli.BoolFlag{
-						Name:    "dry-run",
-						Value:   false,
-						Aliases: []string{"d"},
-						Usage:   "Do not process anything, just scan the directory and metadata.",
-					},
+					//&cli.BoolFlag{
+					//	Name:    "dry-run",
+					//	Value:   false,
+					//	Aliases: []string{"d"},
+					//	Usage:   "Do not process anything, just scan the directory and metadata.",
+					//},
 					&cli.UintFlag{
 						Name:    "limit",
 						Value:   0,
@@ -57,15 +70,15 @@ func main() {
 						Aliases: []string{"m"},
 						Usage:   "Move the files instead of copying them to the destination.",
 					},
-					&cli.BoolFlag{
-						Name:    "quiet",
-						Value:   false,
-						Aliases: []string{"q"},
-						Usage:   "It won't print anything, unless it's an error.",
-					},
+					//&cli.BoolFlag{
+					//	Name:    "quiet",
+					//	Value:   false,
+					//	Aliases: []string{"q"},
+					//	Usage:   "It won't print anything, unless it's an error.",
+					//},
 				},
 				Action: func(c *cli.Context) error {
-					params := CmdOptions{}
+					ctx := AppContext{}
 
 					if c.NArg() == 0 {
 						return errors.New("Source and destination directory arguments are missing.")
@@ -74,52 +87,46 @@ func main() {
 						return errors.New("Destination directory argument is missing.")
 					}
 
-					params.CurrentTime = time.Now()
-					params.SrcDir, _ = filepath.Abs(c.Args().Get(0))
-					params.DestDir, _ = filepath.Abs(c.Args().Get(1))
-					params.DryRun = c.Bool("dry-run")
-					params.Limit = c.Uint("limit")
-					params.Extensions = c.String("extensions")
-					params.ConvertVideos = c.Bool("convert-videos")
-					params.FixDates = c.Bool("fix-dates")
-					params.Move = c.Bool("move")
-					params.Quiet = c.Bool("quiet")
+					ctx.CurrentTime = time.Now()
+					ctx.SrcDir, _ = filepath.Abs(c.Args().Get(0))
+					ctx.DestDir, _ = filepath.Abs(c.Args().Get(1))
+					ctx.DryRun = c.Bool("dry-run")
+					ctx.Limit = c.Uint("limit")
+					ctx.Extensions = c.String("extensions")
+					ctx.ConvertVideos = c.Bool("convert-videos")
+					ctx.FixDates = c.Bool("fix-dates")
+					ctx.Move = c.Bool("move")
+					ctx.Quiet = c.Bool("quiet")
 
-					if !IsDir(params.SrcDir) {
+					if !IsDir(ctx.SrcDir) {
 						return errors.New("Source directory does not exist.")
 					}
 
-					if params.SrcDir == params.DestDir {
+					if ctx.SrcDir == ctx.DestDir {
 						return errors.New("Source and destination directories cannot be the same.")
 					}
 
-					_, err := TidyUp(params)
+					_, err := TidyUp(&ctx)
 
 					return err
 				},
 			},
 			{
-				Name:      "dbize",
-				Usage:     "Creates a SQLite database from the specified metadata directory.",
-				ArgsUsage: "metadata-dir",
+				Name:      "rescan",
+				Usage:     "Scans the given mediatidy-generated directory for missing / not imported files and updates the metadata db.",
+				ArgsUsage: "dir",
 				Action: func(c *cli.Context) error {
-					metadataDir := c.Args().First()
+					targetDir := c.Args().First()
 
-					if !IsDir(metadataDir) {
+					if targetDir == "" || !IsDir(targetDir) {
 						return errors.New("The given metadata directory does not exist or it is not a directory.")
 					}
 
-					DBize(metadataDir)
+					ctx := AppContext{SrcDir: targetDir, DestDir: targetDir}
+					ctx.CurrentTime = time.Now()
+					ctx.DryRun = c.Bool("dry-run")
+					ctx.Quiet = c.Bool("quiet")
 
-					return nil
-				},
-			},
-			{
-				Name:      "rescan",
-				Usage:     "Scans the given mediatidy-generated directory for missing / not imported files and updates the metadata DB.",
-				ArgsUsage: "metadata-dir",
-				Action: func(c *cli.Context) error {
-					fmt.Println("completed task: ", c.Args().First())
 					return nil
 				},
 			},

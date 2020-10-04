@@ -1,12 +1,13 @@
 package main
 
 import (
+	"path/filepath"
 	"time"
 )
 
 type RawJsonMap map[string]interface{}
 
-type CmdOptions struct {
+type AppContext struct {
 	CurrentTime   time.Time // TODO: calculate elapsed time
 	SrcDir        string
 	DestDir       string
@@ -17,9 +18,37 @@ type CmdOptions struct {
 	FixDates      bool
 	Move          bool
 	Quiet         bool
+	Db            DbHelper
+	SrcDb         DbHelper
 }
 
-type CmdFileStats struct {
+func (ctx *AppContext) HasMetadataDb() bool {
+	return PathExists(filepath.Join(ctx.DestDir, DirMetadata, DbFile))
+}
+
+func (ctx *AppContext) InitDb() {
+	metadataDir := filepath.Join(ctx.DestDir, DirMetadata)
+	MakeDirIfNotExists(metadataDir)
+
+	ctx.Db.Init(filepath.Join(metadataDir, DbFile), true)
+}
+
+func (ctx *AppContext) HasSrcMetadataDb() bool {
+	return PathExists(filepath.Join(ctx.SrcDir, DirMetadata, DbFile))
+}
+
+func (ctx *AppContext) InitSrcDbIfExists() bool {
+	if !ctx.HasSrcMetadataDb() {
+		return false
+	}
+	metadataDir := filepath.Join(ctx.SrcDir, DirMetadata)
+	MakeDirIfNotExists(metadataDir)
+
+	ctx.SrcDb.Init(filepath.Join(metadataDir, DbFile), true)
+	return true
+}
+
+type FileImportStats struct {
 	ProcessedFiles  int
 	SkippedFiles    int
 	DuplicatedFiles int
@@ -32,4 +61,3 @@ type FilePathInfo struct {
 	Dirname   string
 	Extension string
 }
-
