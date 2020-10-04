@@ -33,21 +33,3 @@ type FilePathInfo struct {
 	Extension string
 }
 
-type FileMeta struct {
-	Source            FilePathInfo
-	Destination       FilePathInfo
-	MetadataPath      FilePathInfo
-	Size              int64
-	Checksum          string
-	CreationTime      string
-	ModificationTime  string
-	MediaType         string
-	CameraModel       string
-	CreationTool      string
-	IsScreenShot      bool
-	IsDuplication     bool
-	IsAlreadyImported bool
-	IsLegacyVideo     bool
-	Exif              ExifData
-	GPS               GPSData
-}

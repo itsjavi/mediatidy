@@ -14,7 +14,8 @@ const (
 	DirPerms    = 0755
 	FilePerms   = 0644
 
-	DirMetadata        = ".metadata"
+	DirMetadata        = "metadata"
+	DbFile             = "metadata/" + AppName + ".sqlite"
 	DirVideos          = "originals"
 	DirImages          = "originals"
 	DirVideosConverted = "converted"
@@ -22,8 +23,7 @@ const (
 	MediaTypeVideo = "video"
 	MediaTypeImage = "image"
 
-	DateFormat          = time.RFC3339
-	DateTimestampFormat = "2006:01:02 15:04:05"
+	DateLayout          = time.RFC3339
 	DefaultTimezone     = "Europe/Berlin"
 
 	DefaultCameraModelFallback = "Unknown"

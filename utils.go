@@ -7,17 +7,21 @@ import (
 	"log"
 	"strconv"
 	"time"
-
-	tm "github.com/buger/goterm"
 )
 
 func IsError(e error) bool {
 	return e != nil
 }
 
-func HandleError(e error) {
-	if IsError(e) {
-		log.Fatal(fmt.Sprintf("[%s] ERROR: %s\n", AppName, e))
+func HandleError(err error) {
+	if IsError(err) {
+		log.Fatalln(fmt.Sprintf("[%s] ERROR: %s", AppName, err))
+	}
+}
+
+func HandleErrorWithMessage(err error, msg string) {
+	if IsError(err) {
+		log.Fatalln(fmt.Sprintf("[%s] ERROR: %s %s", AppName, err, msg))
 	}
 }
 
@@ -26,10 +30,7 @@ func PrintLn(template string, args ...interface{}) {
 }
 
 func PrintReplaceLn(template string, args ...interface{}) {
-	tm.Clear()
-	tm.MoveCursor(1,1)
-	tm.Printf(template, args...)
-	tm.Flush()
+	fmt.Printf("\033[2K\r"+template, args...)
 }
 
 func TotalBytesToString(b int64, useDecimalSystem bool) string {
@@ -73,7 +74,7 @@ func FormatDateWithTimezone(date time.Time, timezone string) string {
 		}
 	}
 
-	return date.Format(DateFormat)
+	return date.Format(DateLayout)
 }
 
 func ParseDateWithTimezone(layout string, value string, timezone string) (time.Time, error) {

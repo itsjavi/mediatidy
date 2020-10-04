@@ -43,6 +43,9 @@ type ExifToolData struct {
 	GPSLongitudeRef   string
 	GPSPosition       string
 	GPSDateTime       string
+	Duration          string
+	MediaDuration     string
+	TrackDuration     string
 }
 
 type ExifData struct {
@@ -70,16 +73,19 @@ func GetFileMetadata(params CmdOptions, path string, info os.FileInfo) (FileMeta
 
 	// Parse metadata
 	fdata.Exif = parseMetadata(params, fdata)
-	fdata.GPS = GPSDataParse(fdata.Exif.Data.GPSPosition)
+	fdata.GPS = GPSDataParse(fdata.Exif.Data.GPSPosition, fdata.Exif.Data.GPSAltitude)
 
 	// Find file times
-	fdata.ModificationTime = info.ModTime().Format(DateFormat)
+	fdata.ModificationTime = info.ModTime().Format(DateLayout)
 	fdata.CreationTime = fdata.ModificationTime
 	fdata.CreationTime = parseEarliestCreationDate(fdata)
 
 	// Find creation tool, camera, topic
 	fdata.CameraModel = parseExifCameraName(fdata.Exif.Data)
 	fdata.CreationTool = parseExifCreationTool(fdata.Exif.Data)
+	fdata.ImageWidth = fdata.Exif.Data.ImageWidth
+	fdata.ImageHeight = fdata.Exif.Data.ImageHeight
+	fdata.Duration = ParseMediaDuration(fdata.Exif.Data)
 	fdata.IsScreenShot = isScreenShot(fdata.Source.Path +
 		":" + fdata.Exif.Data.SourceFile +
 		":" + fdata.Exif.Data.CreatorTool +
@@ -182,6 +188,24 @@ func getMediaTypeDir(mediaType string) string {
 	return "others"
 }
 
+func ParseMediaDuration(data ExifToolData) string {
+	str := ""
+
+	if data.Duration != "" {
+		return data.Duration
+	}
+
+	if data.MediaDuration != "" {
+		return data.MediaDuration
+	}
+
+	if data.TrackDuration != "" {
+		return data.TrackDuration
+	}
+
+	return strings.TrimSpace(str)
+}
+
 func parseExifCreationTool(data ExifToolData) string {
 	tool := ""
 
@@ -217,7 +241,7 @@ func parseEarliestCreationDate(data FileMeta) string {
 
 	metadataDateFormat := "2006:01:02 15:04:05"
 
-	dates[0] = [2]string{data.ModificationTime, DateFormat}
+	dates[0] = [2]string{data.ModificationTime, DateLayout}
 	dates[1] = [2]string{data.Exif.Data.CreateDate, metadataDateFormat}
 	dates[2] = [2]string{data.Exif.Data.DateTimeOriginal, metadataDateFormat}
 	dates[3] = [2]string{data.Exif.Data.DateTimeDigitized, metadataDateFormat}
@@ -262,7 +286,7 @@ func parseMetadata(params CmdOptions, fdata FileMeta) ExifData {
 	jsonerr := json.Unmarshal(metadataBytes, &metadataByteArr)
 
 	exifData := ExifData{
-		Data:        parseExifMetadata(metadataBytes),
+		Data:        ParseExifMetadata(metadataBytes),
 		DataDumpRaw: string(metadataBytes),
 	}
 
@@ -273,7 +297,7 @@ func parseMetadata(params CmdOptions, fdata FileMeta) ExifData {
 	return exifData
 }
 
-func parseExifMetadata(jsonData []byte) ExifToolData {
+func ParseExifMetadata(jsonData []byte) ExifToolData {
 	var dataList []RawJsonMap
 	HandleError(json.Unmarshal(jsonData, &dataList))
 	d := dataList[0]
@@ -307,6 +331,9 @@ func parseExifMetadata(jsonData []byte) ExifToolData {
 	ds.GPSLongitudeRef = GetJsonMapValue(d, "GPSLongitudeRef")
 	ds.GPSPosition = GetJsonMapValue(d, "GPSPosition")
 	ds.GPSDateTime = GetJsonMapValue(d, "GPSDateTime")
+	ds.Duration = GetJsonMapValue(d, "Duration")
+	ds.MediaDuration = GetJsonMapValue(d, "MediaDuration")
+	ds.TrackDuration = GetJsonMapValue(d, "TrackDuration")
 
 	return ds
 }

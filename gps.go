@@ -7,6 +7,7 @@ import (
 )
 
 type GPSCoord struct {
+	Altitude  string
 	Latitude  float64
 	Longitude float64
 }
@@ -16,18 +17,18 @@ type GPSData struct {
 	Timezone string
 }
 
-func GPSDataParse(gpsPosition string) GPSData {
+func GPSDataParse(gpsPosition string, gpsAltitude string) GPSData {
 	if gpsPosition == "" {
 		return GPSData{Timezone: DefaultTimezone}
 	}
-	data := GPSData{Position: gpsParseCoords(gpsPosition)}
+	data := GPSData{Position: gpsParseCoords(gpsPosition, gpsAltitude)}
 	data.Timezone = latlong.LookupZoneName(data.Position.Latitude, data.Position.Longitude)
 
 	return data
 }
 
 // parses a string like `39 deg 34' 4.66" N, 2 deg 38' 40.34" E`
-func gpsParseCoords(position string) GPSCoord {
+func gpsParseCoords(position string, gpsAltitude string) GPSCoord {
 	latLng := strings.Split(strings.TrimSpace(position), ",")
 
 	if len(latLng) != 2 {
@@ -37,7 +38,7 @@ func gpsParseCoords(position string) GPSCoord {
 	lat := gpsParsePart(strings.TrimSpace(latLng[0]))
 	lng := gpsParsePart(strings.TrimSpace(latLng[1]))
 
-	return GPSCoord{lat, lng}
+	return GPSCoord{Altitude: gpsAltitude, Latitude: lat, Longitude: lng}
 }
 
 // parses a string like `2 deg 38' 40.34" E`
