@@ -8,18 +8,19 @@ import (
 type RawJsonMap map[string]interface{}
 
 type AppContext struct {
-	CurrentTime   time.Time // TODO: calculate elapsed time
-	SrcDir        string
-	DestDir       string
-	DryRun        bool
-	Limit         uint
-	Extensions    string
-	ConvertVideos bool
-	FixDates      bool
-	Move          bool
-	Quiet         bool
-	Db            DbHelper
-	SrcDb         DbHelper
+	CurrentTime      time.Time // TODO: calculate elapsed time
+	SrcDir           string
+	DestDir          string
+	DryRun           bool
+	Limit            uint
+	CustomExtensions string
+	CustomMediaType  string
+	CustomExclude    string
+	MoveFiles        bool
+	FixCreationDates bool
+	Quiet            bool
+	Db               DbHelper
+	SrcDb            DbHelper
 }
 
 func (ctx *AppContext) HasMetadataDb() bool {
@@ -49,10 +50,11 @@ func (ctx *AppContext) InitSrcDbIfExists() bool {
 }
 
 type FileImportStats struct {
-	ProcessedFiles  int
-	SkippedFiles    int
-	DuplicatedFiles int
-	TotalSize       int64
+	ProcessedFiles      int
+	SkippedSameName     int
+	SkippedSameChecksum int
+	SkippedOther        int
+	TotalSize           int64
 }
 
 type FilePathInfo struct {

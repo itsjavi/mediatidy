@@ -3,7 +3,6 @@ package main
 import (
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -340,38 +339,32 @@ func ParseExifMetadata(jsonData []byte) ExifToolData {
 }
 
 func readExifMetadata(ctx AppContext, file FileMeta) []byte {
-	//if ctx.HasMetadataDb(ctx.SrcDir) {
-	//	tmpCtx := AppContext{}
-	//	tmpCtx.InitDb(ctx.SrcDir)
-	//	foundFileMeta, found, err := tmpCtx.Db.FindFileMetaByChecksum(file.Checksum)
-	//}
-
-	// Search for an already existing JSON metadata file
-	pathsLookup := []string{
-		// src, MD5
-		buildChecksumPath(ctx.SrcDir, file.Checksum, file.Origin.Extension).Path,
-		// dest, MD5
-		buildChecksumPath(ctx.DestDir, file.Checksum, file.Origin.Extension).Path,
-	}
-
-	for _, srcMetaFile := range pathsLookup {
-		if PathExists(srcMetaFile) {
-			metadataBytes, err := ioutil.ReadFile(srcMetaFile)
-			if !IsError(err) {
-				var meta FileMeta
-				jsonerr := json.Unmarshal(metadataBytes, &meta)
-				HandleError(jsonerr)
-				return []byte(meta.Exif.FullJsonDump)
-			}
+	// find in SRC DB
+	if ctx.HasSrcMetadataDb() {
+		foundFileMeta, found, err := ctx.SrcDb.FindFileMetaByChecksum(file.Checksum)
+		if found {
+			fmt.Print(" // exiftool data found in SRC db")
+			return []byte(foundFileMeta.ExifJson)
 		}
+		HandleError(err)
+	}
+	// find in DEST DB
+	if ctx.HasMetadataDb() {
+		foundFileMeta, found, err := ctx.Db.FindFileMetaByChecksum(file.Checksum)
+		if found {
+			fmt.Print(" // exiftool data found in DEST db")
+			return []byte(foundFileMeta.ExifJson)
+		}
+		HandleError(err)
 	}
 
 	fallbackMetadata := []byte(`[{"SourceFile":"` + file.Origin.Path + `", "Error": true}]`)
 
-	jsonBytes, err := exec.Command("exiftool", file.Origin.Path, "-json").Output()
+	jsonBytes, err := exec.Command("exiftool", file.Origin.Path, "-json", "-api", "largefilesupport=1", "-extractEmbedded").Output()
 	if IsError(err) {
 		return fallbackMetadata
 	}
+	fmt.Print(" // exiftool data extracted from file")
 
 	return jsonBytes
 }

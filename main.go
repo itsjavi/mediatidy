@@ -34,12 +34,18 @@ func main() {
 				Description: "Organizes the image and video files of a folder recursively from source to destination.",
 				ArgsUsage:   "source destination",
 				Flags: []cli.Flag{
-					//&cli.BoolFlag{
-					//	Name:    "dry-run",
-					//	Value:   false,
-					//	Aliases: []string{"d"},
-					//	Usage:   "Do not process anything, just scan the directory and metadata.",
-					//},
+					&cli.BoolFlag{
+						Name:    "dry-run",
+						Value:   false,
+						Aliases: []string{"d"},
+						Usage:   "Do not process anything, just scan the directory and metadata.",
+					},
+					&cli.BoolFlag{
+						Name:    "quiet",
+						Value:   false,
+						Aliases: []string{"q"},
+						Usage:   "It won't print anything, unless it's an error.",
+					},
 					&cli.UintFlag{
 						Name:    "limit",
 						Value:   0,
@@ -50,13 +56,12 @@ func main() {
 						Name:    "extensions",
 						Value:   "",
 						Aliases: []string{"ext"},
-						Usage:   "Pipe-separated list of file extensions to process, e.g. \"jpg|mp4|mov\".",
+						Usage:   "Custom pipe-separated list of file extensions to process, e.g. \"jpg|mp4|mov|docx\".",
 					},
-					&cli.BoolFlag{
-						Name:    "convert-videos",
-						Value:   false,
-						Aliases: []string{"c"},
-						Usage:   "Convert old video formats like 3gp, flv, mpeg, wmv, divx, etc. to MP4.",
+					&cli.StringFlag{
+						Name:  "type",
+						Value: "",
+						Usage: "Custom media type to tag the custom extensions with, e.g. \"document\".",
 					},
 					&cli.BoolFlag{
 						Name:    "fix-dates",
@@ -70,12 +75,11 @@ func main() {
 						Aliases: []string{"m"},
 						Usage:   "Move the files instead of copying them to the destination.",
 					},
-					//&cli.BoolFlag{
-					//	Name:    "quiet",
-					//	Value:   false,
-					//	Aliases: []string{"q"},
-					//	Usage:   "It won't print anything, unless it's an error.",
-					//},
+					&cli.StringFlag{
+						Name:  "exclude",
+						Value: "",
+						Usage: "Custom pipe-separated list of path patterns to exclude, e.g. \"Screenshot\"",
+					},
 				},
 				Action: func(c *cli.Context) error {
 					ctx := AppContext{}
@@ -92,10 +96,11 @@ func main() {
 					ctx.DestDir, _ = filepath.Abs(c.Args().Get(1))
 					ctx.DryRun = c.Bool("dry-run")
 					ctx.Limit = c.Uint("limit")
-					ctx.Extensions = c.String("extensions")
-					ctx.ConvertVideos = c.Bool("convert-videos")
-					ctx.FixDates = c.Bool("fix-dates")
-					ctx.Move = c.Bool("move")
+					ctx.CustomExtensions = c.String("extensions")
+					ctx.CustomMediaType = c.String("type")
+					ctx.CustomExclude = c.String("exclude")
+					ctx.FixCreationDates = c.Bool("fix-dates")
+					ctx.MoveFiles = c.Bool("move")
 					ctx.Quiet = c.Bool("quiet")
 
 					if !IsDir(ctx.SrcDir) {
@@ -106,7 +111,12 @@ func main() {
 						return errors.New("Source and destination directories cannot be the same.")
 					}
 
-					_, err := TidyUp(&ctx)
+					stats, err := TidyUp(&ctx)
+					printProgress("--", stats)
+
+					if errors.Is(StopWalk, err) {
+						return nil
+					}
 
 					return err
 				},
@@ -119,7 +129,7 @@ func main() {
 					targetDir := c.Args().First()
 
 					if targetDir == "" || !IsDir(targetDir) {
-						return errors.New("The given metadata directory does not exist or it is not a directory.")
+						return errors.New("The given directory does not exist or it is not a directory.")
 					}
 
 					ctx := AppContext{SrcDir: targetDir, DestDir: targetDir}
@@ -127,6 +137,22 @@ func main() {
 					ctx.DryRun = c.Bool("dry-run")
 					ctx.Quiet = c.Bool("quiet")
 
+					return nil
+				},
+			},
+			{
+				Name: "fixdb",
+				Action: func(c *cli.Context) error {
+					targetDir := c.Args().First()
+
+					if targetDir == "" || !IsDir(targetDir) {
+						return errors.New("The given directory does not exist or it is not a directory.")
+					}
+
+					ctx := AppContext{SrcDir: targetDir, DestDir: targetDir}
+					ctx.InitDb()
+					result := ctx.Db.db.Exec("UPDATE files SET path = REPLACE(path, '/.','.')")
+					HandleError(result.Error)
 					return nil
 				},
 			},

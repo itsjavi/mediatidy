@@ -70,10 +70,15 @@ func (dbh *DbHelper) Init(dbFile string, autoMigrate bool) {
 		},
 	)
 	db, err := gorm.Open(sqlite.Open(dbFile), &gorm.Config{Logger: dbLogger})
+	nativeDB, nErr := db.DB()
 
-	if err != nil {
+	if err != nil || nErr != nil {
 		panic("failed to connect database")
 	}
+
+	nativeDB.SetMaxIdleConns(10)
+	nativeDB.SetMaxOpenConns(100)
+	nativeDB.SetConnMaxIdleTime(time.Hour * 24)
 
 	// Migrate the schema
 	if autoMigrate {
