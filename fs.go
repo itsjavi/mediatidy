@@ -33,11 +33,11 @@ func FileCalcChecksum(path string) string {
 	f, err := os.Open(path)
 	defer f.Close()
 
-	HandleError(err)
+	Catch(err)
 
 	h := md5.New()
 	if _, err := io.Copy(h, f); IsError(err) {
-		HandleError(err)
+		Catch(err)
 	}
 
 	return fmt.Sprintf("%x", h.Sum(nil))
@@ -45,12 +45,12 @@ func FileCalcChecksum(path string) string {
 
 func FileAppend(path, str string) {
 	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, FilePerms)
-	HandleError(err)
+	Catch(err)
 
 	defer f.Close()
 
 	if _, err = f.WriteString(str); IsError(err) {
-		HandleError(err)
+		Catch(err)
 	}
 }
 
@@ -104,6 +104,6 @@ func FileMove(src, dest string) error {
 
 func MakeDirIfNotExists(dir string) {
 	if !PathExists(dir) {
-		HandleError(os.MkdirAll(dir, DirPerms))
+		Catch(os.MkdirAll(dir, DirPerms))
 	}
 }

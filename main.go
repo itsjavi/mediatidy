@@ -2,6 +2,8 @@ package main
 
 import (
 	"errors"
+	"fmt"
+	tm "github.com/buger/goterm"
 	"os"
 	"path/filepath"
 	"time"
@@ -91,11 +93,11 @@ func main() {
 						return errors.New("Destination directory argument is missing.")
 					}
 
-					ctx.CurrentTime = time.Now()
+					ctx.StartTime = time.Now()
 					ctx.SrcDir, _ = filepath.Abs(c.Args().Get(0))
 					ctx.DestDir, _ = filepath.Abs(c.Args().Get(1))
 					ctx.DryRun = c.Bool("dry-run")
-					ctx.Limit = c.Uint("limit")
+					ctx.Limit = c.Int("limit")
 					ctx.CustomExtensions = c.String("extensions")
 					ctx.CustomMediaType = c.String("type")
 					ctx.CustomExclude = c.String("exclude")
@@ -111,14 +113,23 @@ func main() {
 						return errors.New("Source and destination directories cannot be the same.")
 					}
 
-					stats, err := TidyUp(&ctx)
-					printProgress("--", stats)
+					stats := WalkDirStats{}
+					fileMetaChan := make(chan FileMeta)
 
-					if errors.Is(StopWalk, err) {
-						return nil
+					go TidyRoutine(ctx, &stats, fileMetaChan)
+					for {
+						meta, isOk := <-fileMetaChan
+						if isOk == false {
+							break // channel closed
+						}
+						printProgress(meta.Path, stats)
 					}
 
-					return err
+					printProgress("--", stats)
+					fmt.Println()
+					PrintLn(tm.Color("Took %s", tm.BLUE), time.Since(ctx.StartTime))
+
+					return nil
 				},
 			},
 			{
@@ -133,7 +144,7 @@ func main() {
 					}
 
 					ctx := AppContext{SrcDir: targetDir, DestDir: targetDir}
-					ctx.CurrentTime = time.Now()
+					ctx.StartTime = time.Now()
 					ctx.DryRun = c.Bool("dry-run")
 					ctx.Quiet = c.Bool("quiet")
 
@@ -152,12 +163,12 @@ func main() {
 					ctx := AppContext{SrcDir: targetDir, DestDir: targetDir}
 					ctx.InitDb()
 					result := ctx.Db.db.Exec("UPDATE files SET path = REPLACE(path, '/.','.')")
-					HandleError(result.Error)
+					Catch(result.Error)
 					return nil
 				},
 			},
 		},
 	}
 	err := app.Run(os.Args)
-	HandleError(err)
+	Catch(err)
 }

@@ -6,39 +6,42 @@ import (
 	"strings"
 )
 
-type GPSCoord struct {
+type GPSData struct {
+	Position  string
 	Altitude  string
 	Latitude  float64
 	Longitude float64
+	DateTime  string
+	Timezone  string
 }
 
-type GPSData struct {
-	Position GPSCoord
-	Timezone string
-}
-
-func GPSDataParse(gpsPosition string, gpsAltitude string) GPSData {
+func (data *GPSData) Parse(gpsPosition string, gpsAltitude string, gpsDateTime string) {
 	if gpsPosition == "" {
-		return GPSData{Timezone: DefaultTimezone}
+		return
 	}
-	data := GPSData{Position: gpsParseCoords(gpsPosition, gpsAltitude)}
-	data.Timezone = latlong.LookupZoneName(data.Position.Latitude, data.Position.Longitude)
 
-	return data
+	coords := gpsParseCoords(gpsPosition)
+
+	data.Position = gpsPosition
+	data.Altitude = gpsAltitude
+	data.Latitude = coords[0]
+	data.Longitude = coords[1]
+	data.DateTime = gpsDateTime
+	data.Timezone = latlong.LookupZoneName(data.Latitude, data.Longitude)
 }
 
 // parses a string like `39 deg 34' 4.66" N, 2 deg 38' 40.34" E`
-func gpsParseCoords(position string, gpsAltitude string) GPSCoord {
-	latLng := strings.Split(strings.TrimSpace(position), ",")
+func gpsParseCoords(gpsPosition string) [2]float64 {
+	latLng := strings.Split(strings.TrimSpace(gpsPosition), ",")
 
 	if len(latLng) != 2 {
-		panic("Cannot parse GPS position: " + position)
+		panic("Cannot parse GPS position: " + gpsPosition)
 	}
 
-	lat := gpsParsePart(strings.TrimSpace(latLng[0]))
-	lng := gpsParsePart(strings.TrimSpace(latLng[1]))
-
-	return GPSCoord{Altitude: gpsAltitude, Latitude: lat, Longitude: lng}
+	return [2]float64{
+		gpsParsePart(strings.TrimSpace(latLng[0])), //lat
+		gpsParsePart(strings.TrimSpace(latLng[1])), //lng
+	}
 }
 
 // parses a string like `2 deg 38' 40.34" E`

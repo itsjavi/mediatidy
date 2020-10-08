@@ -14,19 +14,19 @@ const (
 	DirPerms    = 0755
 	FilePerms   = 0644
 
-	DirMetadata        = "databases"
-	DbFile             = "metadata.sqlite"
-	DirVideos          = "originals"
-	DirImages          = "originals"
+	DirMetadata = "databases"
+	DbFile      = "metadata.sqlite"
+	DirVideos   = "originals"
+	DirImages   = "originals"
 
 	MediaTypeVideo = "video"
 	MediaTypeImage = "image"
 
-	DateLayout          = time.RFC3339
-	DefaultTimezone     = "Europe/Berlin"
+	DateLayout      = time.RFC3339
+	DefaultTimezone = "Europe/Berlin"
 
-	RegexImage       = "(?i)\\.(jpg|jpeg|gif|png|webp|tiff|tif|bmp|raw|svg|psd|ai)$"
-	RegexVideo       = "(?i)\\.(mpg|wmv|avi|mov|m4v|3gp|mp4|flv|webm|ogv|ts|divx|mkv|mpeg)$"
+	RegexImage = "(?i)\\.(jpg|jpeg|gif|png|webp|tiff|tif|bmp|raw|svg|psd|ai)$"
+	RegexVideo = "(?i)\\.(mpg|wmv|avi|mov|m4v|3gp|mp4|flv|webm|ogv|ts|divx|mkv|mpeg)$"
 	// RegexVideoOld    = "(?i)\\.(mpg|wmv|avi|mov|m4v|3gp|flv|divx|mpeg)$"
 	RegexExcludeDirs = "(?i)(\\.([a-z_0-9-]+)|/bower_components|/node_modules|/vendor|/Developer)/.*$"
 	RegexScreenShot  = "(?i)(Screen Shot|Screen Record|Screenshot|Captur)"

@@ -11,39 +11,45 @@ import (
 )
 
 type FileMeta struct {
-	ID         uint   `gorm:"primarykey"`
-	Checksum   string `gorm:"type:string;size:32;uniqueIndex"`
-	Path       string `gorm:"type:text;index"`
-	OriginPath string `gorm:"type:text;index"`
-	Extension  string `gorm:"type:string;size:32"`
+	ID uint `gorm:"primarykey"`
 
-	MediaType string `gorm:"type:string;size:32"`
-	Size      int64
-
+	// File
+	Checksum         string `gorm:"type:string;size:32;uniqueIndex"`
+	Size             int64
+	Path             string `gorm:"type:text;index"`
+	OriginPath       string `gorm:"type:text;index"`
+	Extension        string `gorm:"type:string;size:32"`
 	CreationDate     string
 	ModificationDate string
 
+	// Metadata
+	MediaType    string `gorm:"type:string;size:32"`
 	CameraModel  string
 	CreationTool string
-
 	IsScreenShot bool
-
-	Width    string
-	Height   string
-	Duration string
-
+	Width        string
+	Height       string
+	Duration     string
 	GPSAltitude  string
 	GPSLatitude  string
 	GPSLongitude string
 	GPSTimezone  string
+	ExifJson     string `gorm:"type:text"`
 
-	ExifJson string `gorm:"type:text"`
+	// Internal
+	Exif                        ExifToolMetadata `gorm:"-"`
+	Origin                      FilePathInfo     `gorm:"-"`
+	Destination                 FilePathInfo     `gorm:"-"`
+	IsSkipped                   bool             `gorm:"-"`
+	IsDuplicationByChecksum     bool             `gorm:"-"`
+	IsDuplicationByDestBasename bool             `gorm:"-"`
+}
 
-	Origin                      FilePathInfo `gorm:"-"`
-	Destination                 FilePathInfo `gorm:"-"`
-	IsDuplicationByChecksum     bool         `gorm:"-"`
-	IsDuplicationByDestBasename bool         `gorm:"-"`
-	Exif                        ExifToolData `gorm:"-"`
+type FilePathInfo struct {
+	Path      string
+	Basename  string
+	Dirname   string
+	Extension string
 }
 
 func (FileMeta) TableName() string {
@@ -113,7 +119,7 @@ func (dbh *DbHelper) FindFileMetaBy(column string, val string) (FileMeta, bool, 
 
 func (dbh *DbHelper) HasFileMetaBy(column string, val string) bool {
 	_, found, err := dbh.FindFileMetaBy(column, val)
-	HandleError(err)
+	Catch(err)
 	return found
 }
 
@@ -122,7 +128,7 @@ func (dbh *DbHelper) InsertFileMetaIfNotExists(file *FileMeta) bool {
 		return false
 	}
 
-	HandleError(dbh.InsertFileMeta(file))
+	Catch(dbh.InsertFileMeta(file))
 
 	return file.ID > 0
 }

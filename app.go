@@ -9,15 +9,65 @@ import (
 	"time"
 )
 
-type TidyUpWalkFunc func(stats *FileImportStats, path string, info os.FileInfo, err error) error
-
 var StopWalk = errors.New("stop walking")
 
-func tidyUpFile(ctx AppContext, stats *FileImportStats, path string, info os.FileInfo, err error) (FileMeta, error) {
-	HandleError(err)
+type TidyUpWalkFunc func(stats *WalkDirStats, path string, info os.FileInfo, err error) error
+
+type AppContext struct {
+	StartTime        time.Time // TODO: calculate elapsed time
+	SrcDir           string
+	DestDir          string
+	DryRun           bool
+	Limit            int
+	CustomExtensions string
+	CustomMediaType  string
+	CustomExclude    string
+	MoveFiles        bool
+	FixCreationDates bool
+	Quiet            bool
+	Db               DbHelper
+	SrcDb            DbHelper
+}
+
+type WalkDirStats struct {
+	ProcessedFiles      int
+	SkippedSameName     int
+	SkippedSameChecksum int
+	SkippedOther        int
+	TotalSize           int64
+}
+
+func (ctx *AppContext) HasMetadataDb() bool {
+	return PathExists(filepath.Join(ctx.DestDir, DirMetadata, DbFile))
+}
+
+func (ctx *AppContext) InitDb() {
+	metadataDir := filepath.Join(ctx.DestDir, DirMetadata)
+	MakeDirIfNotExists(metadataDir)
+
+	ctx.Db.Init(filepath.Join(metadataDir, DbFile), true)
+}
+
+func (ctx *AppContext) HasSrcMetadataDb() bool {
+	return PathExists(filepath.Join(ctx.SrcDir, DirMetadata, DbFile))
+}
+
+func (ctx *AppContext) InitSrcDbIfExists() bool {
+	if !ctx.HasSrcMetadataDb() {
+		return false
+	}
+	metadataDir := filepath.Join(ctx.SrcDir, DirMetadata)
+	MakeDirIfNotExists(metadataDir)
+
+	ctx.SrcDb.Init(filepath.Join(metadataDir, DbFile), true)
+	return true
+}
+
+func tidyUpFile(ctx AppContext, stats *WalkDirStats, path string, info os.FileInfo, err error) (FileMeta, error) {
+	Catch(err)
 
 	fileData, err := GetFileMetadata(ctx, path, info)
-	HandleError(err)
+	Catch(err)
 
 	if fileData.IsDuplicationByDestBasename {
 		stats.SkippedSameName++
@@ -37,12 +87,12 @@ func tidyUpFile(ctx AppContext, stats *FileImportStats, path string, info os.Fil
 	return fileData, processFile(ctx, fileData)
 }
 
-func TidyUp(ctx *AppContext) (FileImportStats, error) {
+func TidyUp(ctx *AppContext) (WalkDirStats, error) {
 	ctx.InitDb()
 	ctx.InitSrcDbIfExists()
 
-	return walkDir(*ctx, func(stats *FileImportStats, path string, info os.FileInfo, err error) error {
-		HandleError(err)
+	return walkDir(*ctx, func(stats *WalkDirStats, path string, info os.FileInfo, err error) error {
+		Catch(err)
 
 		if ctx.Limit > 0 && stats.ProcessedFiles >= int(ctx.Limit) {
 			return StopWalk
@@ -61,8 +111,8 @@ func TidyUp(ctx *AppContext) (FileImportStats, error) {
 	})
 }
 
-func walkDir(ctx AppContext, processFileFunc TidyUpWalkFunc) (FileImportStats, error) {
-	stats := FileImportStats{}
+func walkDir(ctx AppContext, processFileFunc TidyUpWalkFunc) (WalkDirStats, error) {
+	stats := WalkDirStats{}
 	return stats, filepath.Walk(ctx.SrcDir, func(path string, info os.FileInfo, err error) error {
 		if IsError(err) {
 			return err
@@ -126,9 +176,9 @@ func processFile(ctx AppContext, file FileMeta) error {
 	// TODO: convert videos
 
 	if ctx.MoveFiles {
-		HandleError(FileMove(file.Origin.Path, destFile))
+		Catch(FileMove(file.Origin.Path, destFile))
 	} else {
-		HandleError(FileCopy(file.Origin.Path, destFile, true))
+		Catch(FileCopy(file.Origin.Path, destFile, true))
 	}
 
 	if ctx.FixCreationDates {
@@ -136,7 +186,7 @@ func processFile(ctx AppContext, file FileMeta) error {
 		mt, err2 := ParseDateWithTimezone(time.RFC3339, file.ModificationDate, file.GPSTimezone)
 
 		if !IsError(err) && !IsError(err2) {
-			HandleError(FileFixDates(destFile, ct, mt))
+			Catch(FileFixDates(destFile, ct, mt))
 		}
 	}
 
@@ -145,7 +195,6 @@ func processFile(ctx AppContext, file FileMeta) error {
 	file.OriginPath = getOriginPath(ctx, file)
 	file.Path = filepath.Join(file.Destination.Dirname, file.Destination.Basename) + file.Destination.Extension
 	file.Extension = file.Destination.Extension
-	file.ExifJson = file.Exif.FullJsonDump
 
 	ctx.Db.InsertFileMetaIfNotExists(&file)
 
@@ -156,7 +205,7 @@ func processFile(ctx AppContext, file FileMeta) error {
 func getOriginPath(ctx AppContext, file FileMeta) string {
 	if ctx.HasSrcMetadataDb() {
 		srcMeta, found, err := ctx.SrcDb.FindFileMetaByChecksum(file.Checksum)
-		HandleError(err)
+		Catch(err)
 		if found {
 			return srcMeta.OriginPath
 		}
@@ -164,7 +213,7 @@ func getOriginPath(ctx AppContext, file FileMeta) string {
 	return file.Origin.Path
 }
 
-func printProgress(currentFile string, stats FileImportStats) {
+func printProgress(currentFile string, stats WalkDirStats) {
 	PrintReplaceLn(
 		"[%s] "+tm.Color(tm.Bold("Stats: %s duplicates / %s skipped / %s processed / %s total size"), tm.YELLOW)+" / file: %s",
 		AppName,

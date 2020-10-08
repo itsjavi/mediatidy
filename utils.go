@@ -6,14 +6,33 @@ import (
 	"fmt"
 	"log"
 	"strconv"
+	"strings"
 	"time"
 )
+
+type KeyValueMap map[string]interface{}
+
+func (kv KeyValueMap) GetString(key string) string {
+	if val, ok := kv[key]; ok {
+		return ToString(val)
+	}
+
+	return ""
+}
+
+func (kv KeyValueMap) GetInt(key string) int {
+	if val, ok := kv[key]; ok {
+		return StrToInt(ToString(val))
+	}
+
+	return 0
+}
 
 func IsError(e error) bool {
 	return e != nil
 }
 
-func HandleError(err error) {
+func Catch(err error) {
 	if IsError(err) {
 		log.Fatalln(fmt.Sprintf("[%s] ERROR: %s", AppName, err))
 	}
@@ -90,14 +109,6 @@ func ParseDateWithTimezone(layout string, value string, timezone string) (time.T
 	return t, err
 }
 
-func GetJsonMapValue(dataMap RawJsonMap, key string) string {
-	if val, ok := dataMap[key]; ok {
-		return ToString(val)
-	}
-
-	return ""
-}
-
 func JsonEncodePretty(v interface{}) ([]byte, error) {
 	meta, err := json.Marshal(v)
 
@@ -109,4 +120,41 @@ func JsonEncodePretty(v interface{}) ([]byte, error) {
 	err = json.Indent(&out, meta, "", "  ")
 
 	return out.Bytes(), err
+}
+
+func FindEarliestDate(dates []time.Time, fallback time.Time) time.Time {
+	var earliest time.Time
+
+	// find earliest valid date
+	for i, val := range dates {
+		if val.Year() <= 1970 {
+			continue
+		}
+
+		if i == 0 {
+			earliest = val
+			continue
+		}
+
+		if val.Unix() < earliest.Unix() {
+			earliest = val
+		}
+	}
+
+	if earliest.IsZero() {
+		return fallback
+	}
+
+	return earliest
+}
+
+func StrToInt(str string) int {
+	if str == "" {
+		return 0
+	}
+	num, err := strconv.Atoi(strings.Split(strings.Replace(str, ",", ".", -1), ".")[0])
+	if IsError(err) {
+		Catch(err)
+	}
+	return num
 }
