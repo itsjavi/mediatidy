@@ -71,7 +71,7 @@ func TotalBytesToString(b int64, useDecimalSystem bool) string {
 		exp++
 	}
 
-	return fmt.Sprintf(format, float64(b)/float64(div), "kMGTPE"[exp])
+	return fmt.Sprintf(format, float64(b)/float64(div), "KMGTPE"[exp])
 }
 
 func ToString(val interface{}) string {
@@ -85,7 +85,7 @@ func ToString(val interface{}) string {
 	}
 }
 
-func FormatDateWithTimezone(date time.Time, timezone string) string {
+func DateInTimezone(date time.Time, timezone string) time.Time {
 	if timezone != "" {
 		loc, err := time.LoadLocation(timezone)
 		if !IsError(err) {
@@ -93,7 +93,7 @@ func FormatDateWithTimezone(date time.Time, timezone string) string {
 		}
 	}
 
-	return date.Format(DateLayout)
+	return date
 }
 
 func ParseDateWithTimezone(layout string, value string, timezone string) (time.Time, error) {

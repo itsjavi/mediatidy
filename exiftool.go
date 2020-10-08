@@ -267,11 +267,14 @@ func (meta *ExifToolMetadata) GetMediaDuration() string {
 	}
 
 	for _, val := range candidates {
+		val = strings.ReplaceAll(val, "(approx)", "")
+		val = strings.ReplaceAll(val, " ", "")
+
 		if val != "" {
 			return strings.TrimSpace(val)
 		}
 	}
-	// TODO: parse duration string to int64. It could be "12 s", "00:00:12", "00:00:12 (aprox)", ...
+
 	return ""
 }
 
@@ -282,8 +285,12 @@ func (meta *ExifToolMetadata) GetFullCreationSoftware() string {
 		str += meta.Get("CreatorTool")
 	}
 
-	if meta.Get("Software") != "" {
-		str += " / " + meta.Get("Software")
+	if meta.Get("Software") != "" && meta.Get("Software") != str {
+		if str == "" {
+			str = meta.Get("Software")
+		} else {
+			str += fmt.Sprintf(" (%s)", meta.Get("Software"))
+		}
 	}
 
 	return strings.TrimSpace(str)
@@ -296,8 +303,12 @@ func (meta *ExifToolMetadata) GetFullCameraName() string {
 		str = meta.Get("Make")
 	}
 
-	if meta.Get("Model") != "" {
-		str += " / " + meta.Get("Model")
+	if meta.Get("Model") != "" && meta.Get("Model") != str {
+		if str == "" {
+			str = meta.Get("Model")
+		} else {
+			str += fmt.Sprintf(" (%s)", meta.Get("Model"))
+		}
 	}
 
 	return strings.TrimSpace(str)

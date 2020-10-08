@@ -72,6 +72,11 @@ func main() {
 						Usage:   "Fix the file creation date by using the one in the metadata, if available.",
 					},
 					&cli.BoolFlag{
+						Name:    "db-only",
+						Value:   false,
+						Usage:   "Only created the DB index, without moving or copying files.",
+					},
+					&cli.BoolFlag{
 						Name:    "move",
 						Value:   false,
 						Aliases: []string{"m"},
@@ -102,6 +107,7 @@ func main() {
 					ctx.CustomMediaType = c.String("type")
 					ctx.CustomExclude = c.String("exclude")
 					ctx.FixCreationDates = c.Bool("fix-dates")
+					ctx.CreateDbOnly = c.Bool("db-only")
 					ctx.MoveFiles = c.Bool("move")
 					ctx.Quiet = c.Bool("quiet")
 
@@ -113,7 +119,7 @@ func main() {
 						return errors.New("Source and destination directories cannot be the same.")
 					}
 
-					stats := WalkDirStats{}
+					stats := AppRunStats{}
 					fileMetaChan := make(chan FileMeta)
 
 					go TidyRoutine(ctx, &stats, fileMetaChan)
@@ -122,10 +128,10 @@ func main() {
 						if isOk == false {
 							break // channel closed
 						}
-						printProgress(meta.Path, stats)
+						PrintAppStats(meta.Path, stats, ctx)
 					}
 
-					printProgress("--", stats)
+					PrintAppStats("--", stats, ctx)
 					fmt.Println()
 					PrintLn(tm.Color("Took %s", tm.BLUE), time.Since(ctx.StartTime))
 

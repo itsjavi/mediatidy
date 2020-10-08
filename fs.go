@@ -29,7 +29,7 @@ func IsDir(dir string) bool {
 	return dirStat.IsDir()
 }
 
-func FileCalcChecksum(path string) string {
+func FileGetMD5Checksum(path string) string {
 	f, err := os.Open(path)
 	defer f.Close()
 

@@ -1,48 +1,123 @@
 package main
 
 import (
+	"database/sql/driver"
 	"errors"
+	"fmt"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
 	"log"
 	"os"
+	"regexp"
 	"time"
 )
+
+type NullableString string
+
+func (NullableString) GormDataType() string {
+	return "text"
+}
+
+// Scan scan value into int64, implements sql.Scanner interface
+func (s *NullableString) Scan(value interface{}) error {
+	str, ok := value.(string)
+	if !ok {
+		return errors.New(fmt.Sprint("Failed to convert value to string:", value))
+	}
+
+	*s = NullableString(str)
+
+	return nil
+}
+
+// Value return json value, implement driver.Valuer interface
+func (s NullableString) Value() (driver.Value, error) {
+	if s == "" {
+		return nil, nil
+	}
+	return s, nil
+}
+
+type MediaDuration time.Duration
+
+func (MediaDuration) GormDataType() string {
+	return "string"
+}
+
+// Scan scan value into int64, implements sql.Scanner interface
+func (d *MediaDuration) Scan(value interface{}) error {
+	formattedDuration, ok := value.(string)
+	if !ok {
+		return errors.New(fmt.Sprint("Failed to convert value to string:", value))
+	}
+
+	return d.Parse(formattedDuration)
+}
+
+// Value return json value, implement driver.Valuer interface
+func (d MediaDuration) Value() (driver.Value, error) {
+	if d == 0 {
+		return nil, nil
+	}
+	return fmt.Sprintf("%s", time.Duration(d)), nil
+}
+
+// Parse a media duration value.
+// Compatible formats are: 1.23s, 1.23s (approx), 00:00:01, 00:00:01 (approx), 00:00:01.23, 00:00:01.23 (approx)
+func (d *MediaDuration) Parse(value string) error {
+	if value == "" {
+		*d = 0
+		return nil
+	}
+	hmsRegex := regexp.MustCompile("(?i)(^[0-9]{1,}):([0-9]{1,}):([0-9.]{1,})$")
+	if hmsRegex.MatchString(value) {
+		value = hmsRegex.ReplaceAllString(value, "${1}h${2}m${3}s")
+	}
+
+	nanoSeconds, err := time.ParseDuration(value)
+	if IsError(err) {
+		return err
+	}
+
+	*d = MediaDuration(nanoSeconds)
+	return nil
+}
 
 type FileMeta struct {
 	ID uint `gorm:"primarykey"`
 
 	// File
-	Checksum         string `gorm:"type:string;size:32;uniqueIndex"`
-	Size             int64
-	Path             string `gorm:"type:text;index"`
-	OriginPath       string `gorm:"type:text;index"`
-	Extension        string `gorm:"type:string;size:32"`
-	CreationDate     string
-	ModificationDate string
+	Checksum          string `gorm:"type:text;uniqueIndex"`
+	Size              int64
+	Path              string         `gorm:"type:text;index"`
+	OriginPath        string         `gorm:"type:text;index"`
+	InitialOriginPath NullableString `gorm:"type:text;index"`
+	Extension         string
+	CreationDate      time.Time
+	ModificationDate  time.Time
 
 	// Metadata
-	MediaType    string `gorm:"type:string;size:32"`
-	CameraModel  string
-	CreationTool string
+	MimeType     NullableString
+	CameraModel  NullableString
+	CreationTool NullableString
 	IsScreenShot bool
-	Width        string
-	Height       string
-	Duration     string
-	GPSAltitude  string
-	GPSLatitude  string
-	GPSLongitude string
-	GPSTimezone  string
-	ExifJson     string `gorm:"type:text"`
+	Width        int
+	Height       int
+	Duration     MediaDuration
+	GPSAltitude  NullableString
+	GPSLatitude  NullableString
+	GPSLongitude NullableString
+	GPSTimezone  NullableString
+	ExifJson     NullableString
 
 	// Internal
-	Exif                        ExifToolMetadata `gorm:"-"`
-	Origin                      FilePathInfo     `gorm:"-"`
-	Destination                 FilePathInfo     `gorm:"-"`
-	IsSkipped                   bool             `gorm:"-"`
-	IsDuplicationByChecksum     bool             `gorm:"-"`
-	IsDuplicationByDestBasename bool             `gorm:"-"`
+	Exif                    ExifToolMetadata `gorm:"-"`
+	Origin                  FilePathInfo     `gorm:"-"`
+	Destination             FilePathInfo     `gorm:"-"`
+	IsSkipped               bool             `gorm:"-"`
+	IsDuplicationByChecksum bool             `gorm:"-"`
+	IsDuplicationByDestPath bool             `gorm:"-"`
 }
 
 type FilePathInfo struct {
@@ -94,6 +169,14 @@ func (dbh *DbHelper) Init(dbFile string, autoMigrate bool) {
 	dbh.db = db
 	dbh.file = dbFile
 	dbh.connected = true
+}
+
+func (dbh *DbHelper) Close() error {
+	dbc, err := dbh.db.DB()
+	if IsError(err) {
+		return err
+	}
+	return dbc.Close()
 }
 
 func (dbh *DbHelper) InsertFileMeta(fileMeta *FileMeta) error {

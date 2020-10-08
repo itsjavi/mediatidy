@@ -2,7 +2,6 @@ package main
 
 import (
 	"runtime"
-	"time"
 )
 
 const (
@@ -14,16 +13,11 @@ const (
 	DirPerms    = 0755
 	FilePerms   = 0644
 
-	DirMetadata = "databases"
-	DbFile      = "metadata.sqlite"
-	DirVideos   = "originals"
-	DirImages   = "originals"
+	MetadataDbFile = "metadata.sqlite"
 
-	MediaTypeVideo = "video"
-	MediaTypeImage = "image"
-
-	DateLayout      = time.RFC3339
-	DefaultTimezone = "Europe/Berlin"
+	DirDatabases  = "databases"
+	DirOriginals  = "originals"
+	DirThumbnails = "thumbnails"
 
 	RegexImage = "(?i)\\.(jpg|jpeg|gif|png|webp|tiff|tif|bmp|raw|svg|psd|ai)$"
 	RegexVideo = "(?i)\\.(mpg|wmv|avi|mov|m4v|3gp|mp4|flv|webm|ogv|ts|divx|mkv|mpeg)$"

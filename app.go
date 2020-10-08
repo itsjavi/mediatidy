@@ -1,17 +1,16 @@
 package main
 
 import (
-	"errors"
+	"fmt"
 	tm "github.com/buger/goterm"
+	"github.com/kalafut/imohash"
 	"os"
+	"path"
 	"path/filepath"
 	"regexp"
+	"strings"
 	"time"
 )
-
-var StopWalk = errors.New("stop walking")
-
-type TidyUpWalkFunc func(stats *WalkDirStats, path string, info os.FileInfo, err error) error
 
 type AppContext struct {
 	StartTime        time.Time // TODO: calculate elapsed time
@@ -22,14 +21,16 @@ type AppContext struct {
 	CustomExtensions string
 	CustomMediaType  string
 	CustomExclude    string
+	CreateDbOnly     bool
 	MoveFiles        bool
 	FixCreationDates bool
 	Quiet            bool
 	Db               DbHelper
 	SrcDb            DbHelper
+	Exiftool         *Exiftool
 }
 
-type WalkDirStats struct {
+type AppRunStats struct {
 	ProcessedFiles      int
 	SkippedSameName     int
 	SkippedSameChecksum int
@@ -37,190 +38,368 @@ type WalkDirStats struct {
 	TotalSize           int64
 }
 
-func (ctx *AppContext) HasMetadataDb() bool {
-	return PathExists(filepath.Join(ctx.DestDir, DirMetadata, DbFile))
+func (ctx *AppContext) OpenExiftool() {
+	exifTool := Exiftool{}
+	exifTool.UseDefaults()
+	Catch(exifTool.Open())
+	ctx.Exiftool = &exifTool
 }
 
-func (ctx *AppContext) InitDb() {
-	metadataDir := filepath.Join(ctx.DestDir, DirMetadata)
-	MakeDirIfNotExists(metadataDir)
-
-	ctx.Db.Init(filepath.Join(metadataDir, DbFile), true)
+func (ctx *AppContext) HasMetadataDb() bool {
+	return PathExists(filepath.Join(ctx.DestDir, DirDatabases, MetadataDbFile))
 }
 
 func (ctx *AppContext) HasSrcMetadataDb() bool {
-	return PathExists(filepath.Join(ctx.SrcDir, DirMetadata, DbFile))
+	return PathExists(filepath.Join(ctx.SrcDir, DirDatabases, MetadataDbFile))
+}
+
+func (ctx *AppContext) InitDb() {
+	metadataDir := filepath.Join(ctx.DestDir, DirDatabases)
+	MakeDirIfNotExists(metadataDir)
+
+	ctx.Db.Init(filepath.Join(metadataDir, MetadataDbFile), true)
 }
 
 func (ctx *AppContext) InitSrcDbIfExists() bool {
 	if !ctx.HasSrcMetadataDb() {
 		return false
 	}
-	metadataDir := filepath.Join(ctx.SrcDir, DirMetadata)
+	metadataDir := filepath.Join(ctx.SrcDir, DirDatabases)
 	MakeDirIfNotExists(metadataDir)
 
-	ctx.SrcDb.Init(filepath.Join(metadataDir, DbFile), true)
+	ctx.SrcDb.Init(filepath.Join(metadataDir, MetadataDbFile), false)
+
 	return true
 }
 
-func tidyUpFile(ctx AppContext, stats *WalkDirStats, path string, info os.FileInfo, err error) (FileMeta, error) {
-	Catch(err)
-
-	fileData, err := GetFileMetadata(ctx, path, info)
-	Catch(err)
-
-	if fileData.IsDuplicationByDestBasename {
-		stats.SkippedSameName++
-		PrintReplaceLn("Skipped duplicate (file name): %s", path)
-		return fileData, nil
-	}
-
-	if fileData.IsDuplicationByChecksum {
-		stats.SkippedSameChecksum++
-		PrintReplaceLn("Skipped duplicate (checksum): %s", path)
-		return fileData, nil
-	}
-
-	stats.ProcessedFiles++
-	stats.TotalSize += fileData.Size
-
-	return fileData, processFile(ctx, fileData)
+func (ctx *AppContext) CloseDb() {
+	Catch(ctx.Db.Close())
 }
 
-func TidyUp(ctx *AppContext) (WalkDirStats, error) {
-	ctx.InitDb()
+func (ctx *AppContext) CloseSrcDbIfExists() {
+	if !ctx.HasSrcMetadataDb() {
+		return
+	}
+	Catch(ctx.SrcDb.Close())
+}
+
+func TidyRoutine(ctx AppContext, stats *AppRunStats, fileMetaChann chan FileMeta) {
+	walkChan := WalkDirRoutine(ctx)
+	ctx.OpenExiftool()
 	ctx.InitSrcDbIfExists()
+	ctx.InitDb()
 
-	return walkDir(*ctx, func(stats *WalkDirStats, path string, info os.FileInfo, err error) error {
-		Catch(err)
+	defer ctx.Exiftool.Close()
+	defer ctx.CloseSrcDbIfExists()
+	defer ctx.CloseDb()
 
-		if ctx.Limit > 0 && stats.ProcessedFiles >= int(ctx.Limit) {
-			return StopWalk
+	for {
+		meta, isOk := <-walkChan
+		if isOk == false {
+			break
+		}
+		if meta.IsSkipped {
+			stats.SkippedOther++
+			continue
+		}
+		if ctx.Limit > 0 && (stats.ProcessedFiles >= ctx.Limit) {
+			break
+		}
+		stats.TotalSize += meta.Size
+
+		DetectDuplication(ctx, &meta)
+
+		if meta.IsDuplicationByChecksum {
+			stats.SkippedSameChecksum++
+			continue
+		}
+		if meta.IsDuplicationByDestPath {
+			stats.SkippedSameName++
+			continue
 		}
 
-		fileMeta, err := tidyUpFile(*ctx, stats, path, info, err)
-		if IsError(err) {
-			return err
+		Catch(ParseFileExifData(ctx, &meta, ctx.Exiftool))
+		SetupPaths(ctx, &meta)
+		if !ctx.CreateDbOnly {
+			CreateDestFile(ctx, meta)
 		}
+		CreateDbEntry(ctx, meta)
 
-		if ctx.Quiet == false {
-			printProgress(fileMeta.Origin.Path, *stats)
-		}
+		//if ctx.CreateThumbnails {
+		//	CreateThumbnail(ctx, meta)
+		//}
+		//
+		//if ctx.ConvertVideos && meta.IsVideo {
+		//	ConvertVideo(ctx, meta)
+		//}
 
-		return nil
-	})
+		//if stats.ProcessedFiles < 3 {
+		//	var jsonmeta, _ = json.Marshal(meta)
+		//	fmt.Print(string(jsonmeta))
+		//	//fmt.Println(meta.CreationDate)
+		//}
+
+		fileMetaChann <- meta
+		stats.ProcessedFiles++
+	}
+
+	defer close(fileMetaChann)
 }
 
-func walkDir(ctx AppContext, processFileFunc TidyUpWalkFunc) (WalkDirStats, error) {
-	stats := WalkDirStats{}
-	return stats, filepath.Walk(ctx.SrcDir, func(path string, info os.FileInfo, err error) error {
-		if IsError(err) {
-			return err
-		}
+func SetupPaths(ctx AppContext, meta *FileMeta) {
+	meta.Destination = BuildDestination(ctx.DestDir, *meta)
+	meta.Path = filepath.Join(meta.Destination.Dirname, meta.Destination.Basename) + "." + meta.Destination.Extension
+	initialOriginPath := FindInitialOriginPath(ctx, *meta)
 
-		if ctx.CustomExclude != "" {
-			if regexp.MustCompile("(?i)(" + ctx.CustomExclude + ")/").MatchString(path) {
+	if initialOriginPath != meta.OriginPath {
+		meta.InitialOriginPath = NullableString(initialOriginPath)
+	}
+}
+
+func CreateDestFile(ctx AppContext, meta FileMeta) {
+	destDir := ctx.DestDir + "/" + meta.Destination.Dirname
+
+	if ctx.DryRun {
+		return
+	}
+
+	MakeDirIfNotExists(destDir)
+
+	if ctx.MoveFiles {
+		Catch(FileMove(meta.Origin.Path, meta.Path))
+	} else {
+		Catch(FileCopy(meta.Origin.Path, meta.Path, true))
+	}
+
+	if ctx.FixCreationDates {
+		Catch(FileFixDates(meta.Path, meta.CreationDate, meta.ModificationDate))
+	}
+}
+
+func CreateDbEntry(ctx AppContext, meta FileMeta) {
+	ctx.Db.InsertFileMetaIfNotExists(&meta)
+}
+
+func CreateThumbnail(ctx AppContext, meta FileMeta) {
+
+}
+
+func ConvertVideo(ctx AppContext, meta FileMeta) {
+
+}
+
+func GetFileChecksum(path string) string {
+	checksum, imoErr := imohash.SumFile(path)
+	Catch(imoErr)
+	return fmt.Sprintf("%x", checksum)
+}
+
+func ParseFileExifData(ctx AppContext, meta *FileMeta, exiftool *Exiftool) error {
+	exif, err := exiftool.ReadMetadata(meta.OriginPath)
+
+	if IsError(err) {
+		return err
+	}
+
+	meta.CameraModel = NullableString(exif.GetFullCameraName())
+	meta.CreationTool = NullableString(exif.GetFullCreationSoftware())
+	meta.IsScreenShot = IsScreenShot(meta.Path, meta.OriginPath, string(meta.CameraModel), string(meta.CreationTool))
+
+	meta.Width = exif.GetMediaWidth()
+	meta.Height = exif.GetMediaHeight()
+	err2 := meta.Duration.Parse(exif.GetMediaDuration())
+	if IsError(err2) {
+		return err2
+	}
+
+	gps := exif.GetGPSData()
+	meta.GPSAltitude = NullableString(gps.Altitude)
+	meta.GPSLatitude = NullableString(ToString(gps.Latitude))
+	meta.GPSLongitude = NullableString(ToString(gps.Longitude))
+	meta.GPSTimezone = NullableString(gps.Timezone)
+
+	meta.ExifJson = NullableString(exif.DataMapJson)
+
+	meta.CreationDate = DateInTimezone(exif.GetEarliestCreationDate(), gps.Timezone)
+	meta.MimeType = NullableString(exif.GetMimeType())
+	meta.Exif = exif
+
+	return nil
+}
+
+func DetectDuplication(ctx AppContext, meta *FileMeta) {
+	if PathExists(meta.Path) {
+		meta.IsDuplicationByDestPath = true
+		return
+	}
+
+	if ctx.Db.HasFileMetaByChecksum(meta.Checksum) {
+		meta.IsDuplicationByChecksum = true
+	}
+}
+
+func IsScreenShot(searchStr ...string) bool {
+	if regexp.MustCompile(RegexScreenShot).MatchString(strings.Join(searchStr, ":")) {
+		return true
+	}
+
+	return false
+}
+
+func SanitizeExtension(ext string) string {
+	ext = strings.Trim(strings.ToLower(ext), ".")
+
+	switch ext {
+	case "jpeg":
+		return "jpg"
+	}
+	return ext
+}
+
+func BuildDestination(destDirRoot string, data FileMeta) FilePathInfo {
+	t := data.CreationDate
+
+	ext := SanitizeExtension(data.Origin.Extension)
+
+	var dateFolder, destFilename string
+
+	dateFolder = fmt.Sprintf("%d/%02d", t.Year(), t.Month())
+
+	destFilename = fmt.Sprintf("%d%02d%02d-%02d%02d%02d", t.Year(), t.Month(), t.Day(),
+		t.Hour(), t.Minute(), t.Second()) + "-" + data.Checksum[0:8]
+
+	destDirName := path.Join(DirOriginals + dateFolder)
+
+	return FilePathInfo{
+		Basename:  destFilename,
+		Dirname:   destDirName,
+		Extension: ext,
+		Path:      destDirRoot + "/" + destDirName + "/" + destFilename + "." + ext,
+	}
+}
+
+func WalkDirRoutine(ctx AppContext) chan FileMeta {
+	chann := make(chan FileMeta)
+	go func() {
+		filepath.Walk(ctx.SrcDir, func(path string, info os.FileInfo, err error) error {
+			Catch(err)
+
+			current := FileMeta{
+				OriginPath: path,
+				IsSkipped:  false,
+			}
+
+			if ctx.CustomExclude != "" {
+				if regexp.MustCompile("(?i)(" + ctx.CustomExclude + ")/").MatchString(path) {
+					if info.IsDir() {
+						return filepath.SkipDir
+					}
+					return nil
+				}
+			} else if regexp.MustCompile(RegexExcludeDirs).MatchString(path) {
 				if info.IsDir() {
 					return filepath.SkipDir
 				}
 				return nil
 			}
-		} else if regexp.MustCompile(RegexExcludeDirs).MatchString(path) {
+
 			if info.IsDir() {
-				return filepath.SkipDir
-			}
-			return nil
-		}
-
-		if info.IsDir() {
-			return nil
-		}
-
-		// File extension is in allowed list?
-		if ctx.CustomExtensions != "" {
-			if !regexp.MustCompile("(?i)\\.(" + ctx.CustomExtensions + ")$").MatchString(path) {
-				PrintReplaceLn("Skipped not listed file extension: %s", path)
-				stats.SkippedOther++
 				return nil
 			}
-		} else if !regexp.MustCompile(RegexImage).MatchString(path) &&
-			!regexp.MustCompile(RegexVideo).MatchString(path) {
-			PrintReplaceLn("Skipped non media file: %s", path)
-			stats.SkippedOther++
+
+			// File extension is in allowed list?
+			if ctx.CustomExtensions != "" {
+				if !regexp.MustCompile("(?i)\\.(" + ctx.CustomExtensions + ")$").MatchString(path) {
+					current.IsSkipped = true
+					chann <- current
+					return nil
+				}
+			} else if !regexp.MustCompile(RegexImage).MatchString(path) &&
+				!regexp.MustCompile(RegexVideo).MatchString(path) {
+				current.IsSkipped = true
+				chann <- current
+				return nil
+			}
+
+			// File is too small?
+			if info.Size() < int64(MinFileSize) {
+				current.IsSkipped = true
+				chann <- current
+				return nil
+			}
+
+			// Fill basic data
+			current.Checksum = GetFileChecksum(path)
+			current.Size = info.Size()
+			fileExtension := filepath.Ext(path)
+			current.Origin = FilePathInfo{
+				Path:      path,
+				Basename:  strings.Replace(info.Name(), fileExtension, "", -1),
+				Dirname:   filepath.Dir(path),
+				Extension: fileExtension,
+			}
+			current.CreationDate = info.ModTime()
+			current.ModificationDate = info.ModTime()
+			current.Extension = SanitizeExtension(fileExtension)
+
+			chann <- current
 			return nil
-		}
-
-		fsize := info.Size()
-
-		// File is too small?
-		if fsize < int64(MinFileSize) {
-			PrintReplaceLn("Skipped too small file: %s", path)
-			stats.SkippedOther++
-			return nil
-		}
-
-		return processFileFunc(&stats, path, info, err)
-	})
+		})
+		defer close(chann)
+	}()
+	return chann
 }
 
-func processFile(ctx AppContext, file FileMeta) error {
-	destDir := ctx.DestDir + "/" + file.Destination.Dirname
-	destFile := destDir + "/" + file.Destination.Basename + file.Destination.Extension
+func PrintAppStats(currentFile string, stats AppRunStats, ctx AppContext) {
+	PrintReplaceLn(
+		"[%s] "+tm.Color(tm.Bold("Stats: %s duplicates | %s skipped | %s processed | %s total size | %s elapsed time | file: %s"), tm.YELLOW),
+		AppName,
+		ToString(stats.SkippedSameName+stats.SkippedSameChecksum),
+		ToString(stats.SkippedOther),
+		ToString(stats.ProcessedFiles),
+		TotalBytesToString(stats.TotalSize, false),
+		time.Since(ctx.StartTime),
+		currentFile,
+	)
+}
 
-	if ctx.DryRun {
-		return nil
-	}
-
-	MakeDirIfNotExists(destDir)
-
-	// TODO: convert videos
-
-	if ctx.MoveFiles {
-		Catch(FileMove(file.Origin.Path, destFile))
-	} else {
-		Catch(FileCopy(file.Origin.Path, destFile, true))
-	}
-
-	if ctx.FixCreationDates {
-		ct, err := ParseDateWithTimezone(time.RFC3339, file.CreationDate, file.GPSTimezone)
-		mt, err2 := ParseDateWithTimezone(time.RFC3339, file.ModificationDate, file.GPSTimezone)
-
-		if !IsError(err) && !IsError(err2) {
-			Catch(FileFixDates(destFile, ct, mt))
+func FindExistingExifMetadata(ctx AppContext, file FileMeta) []byte {
+	// find in SRC DB
+	if ctx.HasSrcMetadataDb() {
+		foundFileMeta, found, err := ctx.SrcDb.FindFileMetaByChecksum(file.Checksum)
+		Catch(err)
+		if found {
+			fmt.Print(" // exiftool data found in SRC db")
+			return []byte(foundFileMeta.ExifJson)
 		}
 	}
-
-	// Write meta file in the last step, to be sure the file has been moved/copied successfully before
-
-	file.OriginPath = getOriginPath(ctx, file)
-	file.Path = filepath.Join(file.Destination.Dirname, file.Destination.Basename) + file.Destination.Extension
-	file.Extension = file.Destination.Extension
-
-	ctx.Db.InsertFileMetaIfNotExists(&file)
+	// find in DEST DB
+	if ctx.HasMetadataDb() {
+		foundFileMeta, found, err := ctx.Db.FindFileMetaByChecksum(file.Checksum)
+		Catch(err)
+		if found {
+			fmt.Print(" // exiftool data found in DEST db")
+			return []byte(foundFileMeta.ExifJson)
+		}
+	}
 
 	return nil
 }
 
 // get origin path from SRC db instead (if exists)
-func getOriginPath(ctx AppContext, file FileMeta) string {
+func FindInitialOriginPath(ctx AppContext, file FileMeta) string {
 	if ctx.HasSrcMetadataDb() {
 		srcMeta, found, err := ctx.SrcDb.FindFileMetaByChecksum(file.Checksum)
 		Catch(err)
 		if found {
 			return srcMeta.OriginPath
 		}
+		// support old MD5 hashes
+		srcMeta, found, err = ctx.SrcDb.FindFileMetaByChecksum(FileGetMD5Checksum(file.OriginPath))
+		Catch(err)
+		if found {
+			return srcMeta.OriginPath
+		}
 	}
 	return file.Origin.Path
-}
-
-func printProgress(currentFile string, stats WalkDirStats) {
-	PrintReplaceLn(
-		"[%s] "+tm.Color(tm.Bold("Stats: %s duplicates / %s skipped / %s processed / %s total size"), tm.YELLOW)+" / file: %s",
-		AppName,
-		ToString(stats.SkippedSameName+stats.SkippedSameChecksum),
-		ToString(stats.SkippedOther),
-		ToString(stats.ProcessedFiles),
-		TotalBytesToString(stats.TotalSize, false),
-		currentFile,
-	)
 }

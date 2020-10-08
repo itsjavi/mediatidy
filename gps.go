@@ -22,6 +22,10 @@ func (data *GPSData) Parse(gpsPosition string, gpsAltitude string, gpsDateTime s
 
 	coords := gpsParseCoords(gpsPosition)
 
+	if (gpsAltitude == "") {
+		gpsAltitude = "0 m Above Sea Level"
+	}
+
 	data.Position = gpsPosition
 	data.Altitude = gpsAltitude
 	data.Latitude = coords[0]
