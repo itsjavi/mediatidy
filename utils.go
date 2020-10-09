@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	tm "github.com/buger/goterm"
+	"github.com/ztrue/tracerr"
 	"log"
 	"regexp"
 	"strconv"
@@ -44,7 +45,8 @@ func PrintError(err error) {
 
 func Catch(err error) {
 	if IsError(err) {
-		log.Fatalln(fmt.Sprintf("[%s] ERROR: %s", AppName, err))
+		tracerr.PrintSourceColor(tracerr.Wrap(fmt.Errorf("[%s] ERROR: %s", AppName, err)))
+		log.Fatal(fmt.Sprintf("Uncaught error '%s'", err))
 	}
 }
 

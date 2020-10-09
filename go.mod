@@ -11,6 +11,7 @@ require (
 	github.com/kalafut/imohash v1.0.0
 	github.com/mattn/go-sqlite3 v1.14.4 // indirect
 	github.com/urfave/cli/v2 v2.2.0
+	github.com/ztrue/tracerr v0.3.0
 	golang.org/x/image v0.0.0-20200927104501-e162460cd6b5 // indirect
 	golang.org/x/sys v0.0.0-20200930185726-fdedc70b468f // indirect
 	gorm.io/driver/sqlite v1.1.3
