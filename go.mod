@@ -5,6 +5,7 @@ go 1.15
 require (
 	github.com/bradfitz/latlong v0.0.0-20170410180902-f3db6d0dff40
 	github.com/buger/goterm v0.0.0-20200322175922-2f3e71b85129
+	github.com/disintegration/imaging v1.6.2
 	github.com/golang/freetype v0.0.0-20170609003504-e2365dfdc4a0 // indirect; indirectv1.9.0
 	github.com/jonas-p/go-shp v0.1.1 // indirect
 	github.com/kalafut/imohash v1.0.0

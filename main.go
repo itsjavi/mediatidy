@@ -80,6 +80,11 @@ func main() {
 						Usage: "Only created the DB index, without moving or copying files.",
 					},
 					&cli.BoolFlag{
+						Name:  "thumbnails",
+						Value: false,
+						Usage: "Create thumbnails for the compatible images and videos.",
+					},
+					&cli.BoolFlag{
 						Name:    "move",
 						Value:   false,
 						Aliases: []string{"m"},
@@ -111,6 +116,7 @@ func main() {
 					ctx.CustomExclude = c.String("exclude")
 					ctx.FixCreationDates = c.Bool("fix-dates")
 					ctx.CreateDbOnly = c.Bool("db-only")
+					ctx.CreateThumbnails = c.Bool("thumbnails")
 					ctx.MoveFiles = c.Bool("move")
 					ctx.Quiet = c.Bool("quiet")
 

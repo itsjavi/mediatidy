@@ -108,14 +108,19 @@ type FileMeta struct {
 	CreationDate      time.Time
 	ModificationDate  time.Time
 
-	// Metadata
+	// Basic metadata
 	MimeType     NullableString
-	CameraModel  NullableString
-	CreationTool NullableString
-	IsScreenShot bool
 	Width        int
 	Height       int
 	Duration     MediaDuration
+	IsVideo      bool
+	IsImage      bool
+	IsScreenShot bool
+	HasThumbnail bool
+
+	// Extra metadata
+	CameraModel  NullableString
+	CreationTool NullableString
 	GPSAltitude  NullableString
 	GPSLatitude  NullableString
 	GPSLongitude NullableString

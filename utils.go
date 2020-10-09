@@ -200,3 +200,27 @@ func NormalizeTimestampStringFormat(date string) (string, string) {
 
 	return layout, date
 }
+
+func MaxInt(vars ...int) int {
+	max := vars[0]
+
+	for _, n := range vars {
+		if n > max {
+			max = n
+		}
+	}
+
+	return max
+}
+
+func MinInt(vars ...int) int {
+	min := vars[0]
+
+	for _, n := range vars {
+		if n < min {
+			min = n
+		}
+	}
+
+	return min
+}

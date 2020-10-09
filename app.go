@@ -3,13 +3,39 @@ package main
 import (
 	"fmt"
 	tm "github.com/buger/goterm"
+	"github.com/disintegration/imaging"
 	"github.com/kalafut/imohash"
 	"os"
 	"path"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"strings"
 	"time"
+)
+
+const IsUnix = runtime.GOOS == "linux" || runtime.GOOS == "darwin" || runtime.GOOS == "freebsd" || runtime.GOOS == "openbsd"
+const (
+	AppName                    = "mediatidy"
+	MinFileSize                = 1000 // 1000 B / 1 KB
+	DirPerms                   = 0755
+	FilePerms                  = 0644
+	MetadataDbFile             = "metadata.sqlite"
+	DirDatabases               = "databases"
+	DirOriginals               = "originals"
+	DirThumbnails              = "thumbnails"
+	ThumbnailWidth             = 480 // 1920/4
+	ThumbnailHeight            = 270 // 1080/4
+	PortraitThumbnailWidth     = ThumbnailHeight
+	PortraitThumbnailHeight    = ThumbnailWidth
+	GifMaxDuration             = 2
+	GifFrameRate               = 10
+	RegexImage                 = "(?i)\\.(jpg|jpeg|gif|png)$"
+	RegexVideo                 = "(?i)\\.(mpg|wmv|avi|mov|m4v|3gp|mp4|flv|webm|ogv|ts|divx|mkv|mpeg)$"
+	RegexExcludeDirs           = "(?i)(\\.([a-z_0-9-]+)|/bower_components|/node_modules|/vendor|/Developer|/[Tt]humbnail[s]?)/.*$"
+	RegexScreenShot            = "(?i)(Screen Shot|Screen Record|Screenshot|Captur)"
+	ThumnailableImageMimeTypes = "(?i)(^image/(jpeg|png|gif)$)"
+	// RegexVideoOld    = "(?i)\\.(mpg|wmv|avi|mov|m4v|3gp|flv|divx|mpeg)$"
 )
 
 type AppContext struct {
@@ -22,6 +48,7 @@ type AppContext struct {
 	CustomMediaType  string
 	CustomExclude    string
 	CreateDbOnly     bool
+	CreateThumbnails bool
 	MoveFiles        bool
 	FixCreationDates bool
 	Quiet            bool
@@ -124,12 +151,11 @@ func TidyRoutine(ctx AppContext, stats *AppRunStats, fileMetaChann chan FileMeta
 		if !ctx.CreateDbOnly {
 			CreateDestFile(ctx, meta)
 		}
-		//fmt.Println("will create a DB entry..")
-		CreateDbEntry(ctx, meta)
 
-		//if ctx.CreateThumbnails {
-		//	CreateThumbnail(ctx, meta)
-		//}
+		if ctx.CreateThumbnails && CreateThumbnail(ctx, meta) {
+			meta.HasThumbnail = true
+		}
+
 		//
 		//if ctx.ConvertVideos && meta.IsVideo {
 		//	ConvertVideo(ctx, meta)
@@ -141,6 +167,9 @@ func TidyRoutine(ctx AppContext, stats *AppRunStats, fileMetaChann chan FileMeta
 		//	//fmt.Println(meta.CreationDate)
 		//}
 
+		//fmt.Println("will create a DB entry..")
+		CreateDbEntry(ctx, meta)
+
 		fileMetaChann <- meta
 		stats.ProcessedFiles++
 	}
@@ -149,7 +178,7 @@ func TidyRoutine(ctx AppContext, stats *AppRunStats, fileMetaChann chan FileMeta
 }
 
 func SetupPaths(ctx AppContext, meta *FileMeta) {
-	meta.Destination = BuildDestination(ctx.DestDir, *meta)
+	meta.Destination = BuildDestination(ctx.DestDir, *meta, DirOriginals)
 	meta.Path = filepath.Join(meta.Destination.Dirname, meta.Destination.Basename) + "." + meta.Destination.Extension
 	initialOriginPath := FindInitialOriginPath(ctx, *meta)
 
@@ -159,7 +188,8 @@ func SetupPaths(ctx AppContext, meta *FileMeta) {
 }
 
 func CreateDestFile(ctx AppContext, meta FileMeta) {
-	destDir := ctx.DestDir + "/" + meta.Destination.Dirname
+	destDir := path.Join(ctx.DestDir, meta.Destination.Dirname)
+	destFile := path.Join(destDir, meta.Destination.Basename) + "." + meta.Destination.Extension
 
 	if ctx.DryRun {
 		return
@@ -168,13 +198,13 @@ func CreateDestFile(ctx AppContext, meta FileMeta) {
 	MakeDirIfNotExists(destDir)
 
 	if ctx.MoveFiles {
-		Catch(FileMove(meta.Origin.Path, meta.Path))
+		Catch(FileMove(meta.Origin.Path, destFile))
 	} else {
-		Catch(FileCopy(meta.Origin.Path, meta.Path, true))
+		Catch(FileCopy(meta.Origin.Path, destFile, true))
 	}
 
 	if ctx.FixCreationDates {
-		Catch(FileFixDates(meta.Path, meta.CreationDate, meta.ModificationDate))
+		Catch(FileFixDates(destFile, meta.CreationDate, meta.ModificationDate))
 	}
 }
 
@@ -182,12 +212,54 @@ func CreateDbEntry(ctx AppContext, meta FileMeta) {
 	ctx.Db.InsertFileMetaIfNotExists(&meta)
 }
 
-func CreateThumbnail(ctx AppContext, meta FileMeta) {
+func CreateThumbnail(ctx AppContext, meta FileMeta) bool {
+	destFile := BuildDestination(ctx.DestDir, meta, DirThumbnails)
+	destDir := path.Join(ctx.DestDir, destFile.Dirname)
+	MakeDirIfNotExists(destDir)
 
-}
+	var err error = nil
 
-func ConvertVideo(ctx AppContext, meta FileMeta) {
+	if regexp.MustCompile("(?i)(^image.*)").MatchString(string(meta.MimeType)) {
+		if !regexp.MustCompile(ThumnailableImageMimeTypes).MatchString(string(meta.MimeType)) {
+			return false
+		}
+		if meta.Width > meta.Height {
+			err = CreateImageThumbnail(ThumbnailWidth, ThumbnailHeight, imaging.Center, meta.OriginPath, destFile.Path)
+		} else {
+			err = CreateImageThumbnail(PortraitThumbnailWidth, PortraitThumbnailHeight, imaging.Center, meta.OriginPath, destFile.Path)
+		}
 
+		if IsError(err) {
+			PrintLnRed("Warning: Cannot create thumbnail image for file " + meta.OriginPath)
+			return false
+		}
+		return true
+	}
+
+	if regexp.MustCompile("(?i)(^video.*)").MatchString(string(meta.MimeType)) {
+		destFilePath := path.Join(ctx.DestDir, destFile.Dirname, destFile.Basename) + ".gif"
+		durationSeconds := time.Duration(meta.Duration) / time.Second
+		startTime := int(durationSeconds / 2)
+		clipDuration := MinInt(int(durationSeconds), GifMaxDuration)
+
+		if meta.Extension == "3gp" { // fix GIFs having too many seconds
+			clipDuration = MinInt(1, clipDuration)
+		}
+
+		if meta.Width > meta.Height {
+			err = CreateVideoGif(startTime, clipDuration, ThumbnailWidth, GifFrameRate, meta.OriginPath, destFilePath)
+		} else {
+			err = CreateVideoGif(startTime, clipDuration, PortraitThumbnailWidth, GifFrameRate, meta.OriginPath, destFilePath)
+		}
+
+		if IsError(err) {
+			PrintLnRed("Warning: Cannot create GIF video for file " + meta.OriginPath)
+			return false
+		}
+		return true
+	}
+
+	return false
 }
 
 func GetFileChecksum(path string) string {
@@ -207,9 +279,12 @@ func ParseFileExifData(ctx AppContext, meta *FileMeta, exiftool *Exiftool) error
 	meta.CameraModel = NullableString(exif.GetFullCameraName())
 	meta.CreationTool = NullableString(exif.GetFullCreationSoftware())
 	meta.IsScreenShot = IsScreenShot(meta.Path, meta.OriginPath, string(meta.CameraModel), string(meta.CreationTool))
-
+	meta.MimeType = NullableString(exif.GetMimeType())
+	meta.IsImage = regexp.MustCompile("(?i)(^image.*)").MatchString(string(meta.MimeType))
+	meta.IsVideo = regexp.MustCompile("(?i)(^video.*)").MatchString(string(meta.MimeType))
 	meta.Width = exif.GetMediaWidth()
 	meta.Height = exif.GetMediaHeight()
+
 	err2 := meta.Duration.Parse(exif.GetMediaDuration())
 	if IsError(err2) {
 		return err2
@@ -224,7 +299,6 @@ func ParseFileExifData(ctx AppContext, meta *FileMeta, exiftool *Exiftool) error
 	meta.ExifJson = NullableString(exif.DataMapJson)
 
 	meta.CreationDate = DateInTimezone(exif.GetEarliestCreationDate(), gps.Timezone)
-	meta.MimeType = NullableString(exif.GetMimeType())
 	meta.Exif = exif
 
 	return nil
@@ -259,7 +333,7 @@ func SanitizeExtension(ext string) string {
 	return ext
 }
 
-func BuildDestination(destDirRoot string, data FileMeta) FilePathInfo {
+func BuildDestination(destDirRoot string, data FileMeta, relativeDirName string) FilePathInfo {
 	t := data.CreationDate
 
 	ext := SanitizeExtension(data.Origin.Extension)
@@ -271,13 +345,13 @@ func BuildDestination(destDirRoot string, data FileMeta) FilePathInfo {
 	destFilename = fmt.Sprintf("%d%02d%02d-%02d%02d%02d", t.Year(), t.Month(), t.Day(),
 		t.Hour(), t.Minute(), t.Second()) + "-" + data.Checksum[0:8]
 
-	destDirName := path.Join(DirOriginals + dateFolder)
+	destDirName := path.Join(relativeDirName, dateFolder)
 
 	return FilePathInfo{
 		Basename:  destFilename,
 		Dirname:   destDirName,
 		Extension: ext,
-		Path:      destDirRoot + "/" + destDirName + "/" + destFilename + "." + ext,
+		Path:      path.Join(destDirRoot, destDirName, destFilename) + "." + ext,
 	}
 }
 
