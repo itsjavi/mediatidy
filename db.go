@@ -113,10 +113,14 @@ type FileMeta struct {
 	Width        int
 	Height       int
 	Duration     MediaDuration
-	IsVideo      bool
 	IsImage      bool
+	IsVideo      bool
 	IsScreenShot bool
-	HasThumbnail bool
+
+	// thumbnail
+	ThumbnailPath   NullableString
+	ThumbnailWidth  int
+	ThumbnailHeight int
 
 	// Extra metadata
 	CameraModel  NullableString

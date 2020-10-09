@@ -39,22 +39,10 @@ func main() {
 				Description: "Organizes the image and video files of a folder recursively from source to destination.",
 				ArgsUsage:   "source destination",
 				Flags: []cli.Flag{
-					&cli.BoolFlag{
-						Name:    "dry-run",
-						Value:   false,
-						Aliases: []string{"d"},
-						Usage:   "Do not process anything, just scan the directory and metadata.",
-					},
-					&cli.BoolFlag{
-						Name:    "quiet",
-						Value:   false,
-						Aliases: []string{"q"},
-						Usage:   "It won't print anything, unless it's an error.",
-					},
 					&cli.UintFlag{
 						Name:    "limit",
 						Value:   0,
-						Aliases: []string{},
+						Aliases: []string{"l"},
 						Usage:   "Limit of files to process.",
 					},
 					&cli.StringFlag{
@@ -166,22 +154,22 @@ func main() {
 					return nil
 				},
 			},
-			{
-				Name: "fixdb",
-				Action: func(c *cli.Context) error {
-					targetDir := c.Args().First()
-
-					if targetDir == "" || !IsDir(targetDir) {
-						return errors.New("The given directory does not exist or it is not a directory.")
-					}
-
-					ctx := AppContext{SrcDir: targetDir, DestDir: targetDir}
-					ctx.InitDb()
-					result := ctx.Db.db.Exec("UPDATE files SET path = REPLACE(path, '/.','.')")
-					Catch(result.Error)
-					return nil
-				},
-			},
+			//{
+			//	Name: "fixdb",
+			//	Action: func(c *cli.Context) error {
+			//		targetDir := c.Args().First()
+			//
+			//		if targetDir == "" || !IsDir(targetDir) {
+			//			return errors.New("The given directory does not exist or it is not a directory.")
+			//		}
+			//
+			//		ctx := AppContext{SrcDir: targetDir, DestDir: targetDir}
+			//		ctx.InitDb()
+			//		result := ctx.Db.db.Exec("UPDATE files SET path = REPLACE(path, '/.','.')")
+			//		Catch(result.Error)
+			//		return nil
+			//	},
+			//},
 		},
 	}
 	err := app.Run(os.Args)

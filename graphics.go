@@ -41,7 +41,7 @@ func CreateVideoGif(start int, duration int, scale int, frameRate int, srcFile s
 	s := fmt.Sprintf("%v", start)
 	t := fmt.Sprintf("%v", duration)
 
-	e := exec.Command("ffmpeg", "-t", t, "-ss", s, "-i", srcFile, "-vf", "scale="+
+	e := exec.Command("ffmpeg", "-y", "-t", t, "-ss", s, "-i", srcFile, "-vf", "scale="+
 		ToString(scale)+":-1", "-an", "-r", ToString(frameRate), "-crf", "24", destFile)
 
 	stdout, err := e.CombinedOutput()

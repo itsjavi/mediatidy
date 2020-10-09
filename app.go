@@ -16,25 +16,24 @@ import (
 
 const IsUnix = runtime.GOOS == "linux" || runtime.GOOS == "darwin" || runtime.GOOS == "freebsd" || runtime.GOOS == "openbsd"
 const (
-	AppName                    = "mediatidy"
-	MinFileSize                = 1000 // 1000 B / 1 KB
-	DirPerms                   = 0755
-	FilePerms                  = 0644
-	MetadataDbFile             = "metadata.sqlite"
-	DirDatabases               = "databases"
-	DirOriginals               = "originals"
-	DirThumbnails              = "thumbnails"
-	ThumbnailWidth             = 480 // 1920/4
-	ThumbnailHeight            = 270 // 1080/4
-	PortraitThumbnailWidth     = ThumbnailHeight
-	PortraitThumbnailHeight    = ThumbnailWidth
-	GifMaxDuration             = 2
-	GifFrameRate               = 10
-	RegexImage                 = "(?i)\\.(jpg|jpeg|gif|png)$"
-	RegexVideo                 = "(?i)\\.(mpg|wmv|avi|mov|m4v|3gp|mp4|flv|webm|ogv|ts|divx|mkv|mpeg)$"
-	RegexExcludeDirs           = "(?i)(\\.([a-z_0-9-]+)|/bower_components|/node_modules|/vendor|/Developer|/[Tt]humbnail[s]?)/.*$"
-	RegexScreenShot            = "(?i)(Screen Shot|Screen Record|Screenshot|Captur)"
-	ThumnailableImageMimeTypes = "(?i)(^image/(jpeg|png|gif)$)"
+	AppName                 = "mediatidy"
+	MinFileSize             = 1000 // 1000 B / 1 KB
+	DirPerms                = 0755
+	FilePerms               = 0644
+	MetadataDbFile          = "metadata.sqlite"
+	DirDatabases            = "databases"
+	DirOriginals            = "originals"
+	DirThumbnails           = "thumbnails"
+	ThumbnailWidth          = 480 // 1920/4
+	ThumbnailHeight         = 270 // 1080/4
+	PortraitThumbnailWidth  = ThumbnailHeight
+	PortraitThumbnailHeight = ThumbnailWidth
+	GifMaxDuration          = 2
+	GifFrameRate            = 10
+	RegexImage              = "(?i)\\.(jpg|jpeg|gif|png)$"
+	RegexVideo              = "(?i)\\.(mpg|wmv|avi|mov|m4v|3gp|mp4|flv|webm|ogv|ts|divx|mkv|mpeg)$"
+	RegexExcludeDirs        = "(?i)(\\.([a-z_0-9-]+)|/bower_components|/node_modules|/vendor|/Developer|/[Tt]humbnail[s]?)/.*$"
+	RegexScreenShot         = "(?i)(Screen Shot|Screen Record|Screenshot|Captur)"
 	// RegexVideoOld    = "(?i)\\.(mpg|wmv|avi|mov|m4v|3gp|flv|divx|mpeg)$"
 )
 
@@ -119,6 +118,7 @@ func TidyRoutine(ctx AppContext, stats *AppRunStats, fileMetaChann chan FileMeta
 	defer ctx.Exiftool.Close()
 	defer ctx.CloseSrcDbIfExists()
 	defer ctx.CloseDb()
+	defer close(fileMetaChann)
 
 	for {
 		meta, isOk := <-walkChan
@@ -146,14 +146,20 @@ func TidyRoutine(ctx AppContext, stats *AppRunStats, fileMetaChann chan FileMeta
 		}
 
 		Catch(ParseFileExifData(ctx, &meta, ctx.Exiftool))
-		//fmt.Println("will setup paths..")
-		SetupPaths(ctx, &meta)
-		if !ctx.CreateDbOnly {
-			CreateDestFile(ctx, meta)
+
+		if !meta.IsImage && !meta.IsVideo {
+			return
 		}
 
-		if ctx.CreateThumbnails && CreateThumbnail(ctx, meta) {
-			meta.HasThumbnail = true
+		ConfigurePaths(ctx, &meta)
+
+		if ctx.DryRun {
+			continue
+		}
+
+		if ctx.CreateDbOnly {
+			CreateDbEntry(ctx, meta)
+			continue
 		}
 
 		//
@@ -161,23 +167,24 @@ func TidyRoutine(ctx AppContext, stats *AppRunStats, fileMetaChann chan FileMeta
 		//	ConvertVideo(ctx, meta)
 		//}
 
-		//if stats.ProcessedFiles < 3 {
-		//	var jsonmeta, _ = json.Marshal(meta)
-		//	fmt.Print(string(jsonmeta))
-		//	//fmt.Println(meta.CreationDate)
-		//}
+		ch1 := make(chan bool)
+		go CreateDestFile(ctx, meta, ch1)
 
-		//fmt.Println("will create a DB entry..")
+		ch2 := make(chan bool)
+		if ctx.CreateThumbnails {
+			go GenerateThumbnail(ctx, &meta, ch2)
+		}
+
+		<-ch1
+		<-ch2
 		CreateDbEntry(ctx, meta)
 
 		fileMetaChann <- meta
 		stats.ProcessedFiles++
 	}
-
-	defer close(fileMetaChann)
 }
 
-func SetupPaths(ctx AppContext, meta *FileMeta) {
+func ConfigurePaths(ctx AppContext, meta *FileMeta) {
 	meta.Destination = BuildDestination(ctx.DestDir, *meta, DirOriginals)
 	meta.Path = filepath.Join(meta.Destination.Dirname, meta.Destination.Basename) + "." + meta.Destination.Extension
 	initialOriginPath := FindInitialOriginPath(ctx, *meta)
@@ -187,13 +194,10 @@ func SetupPaths(ctx AppContext, meta *FileMeta) {
 	}
 }
 
-func CreateDestFile(ctx AppContext, meta FileMeta) {
+func CreateDestFile(ctx AppContext, meta FileMeta, ch chan bool) {
 	destDir := path.Join(ctx.DestDir, meta.Destination.Dirname)
 	destFile := path.Join(destDir, meta.Destination.Basename) + "." + meta.Destination.Extension
-
-	if ctx.DryRun {
-		return
-	}
+	defer close(ch)
 
 	MakeDirIfNotExists(destDir)
 
@@ -206,23 +210,42 @@ func CreateDestFile(ctx AppContext, meta FileMeta) {
 	if ctx.FixCreationDates {
 		Catch(FileFixDates(destFile, meta.CreationDate, meta.ModificationDate))
 	}
+	ch <- true
 }
 
 func CreateDbEntry(ctx AppContext, meta FileMeta) {
 	ctx.Db.InsertFileMetaIfNotExists(&meta)
 }
 
-func CreateThumbnail(ctx AppContext, meta FileMeta) bool {
-	destFile := BuildDestination(ctx.DestDir, meta, DirThumbnails)
+func GenerateThumbnail(ctx AppContext, meta *FileMeta, ch chan bool) {
+	defer close(ch)
+
+	thumbnailDestRelFile := CreateThumbnailDestRelativePath(ctx, *meta)
+	thumbnailDestFile := FilePathInfo{
+		Path:      path.Join(ctx.DestDir, thumbnailDestRelFile),
+		Basename:  path.Base(thumbnailDestRelFile),
+		Dirname:   path.Dir(thumbnailDestRelFile),
+		Extension: path.Ext(thumbnailDestRelFile),
+	}
+
+	if GenerateThumbnailFile(ctx, *meta, thumbnailDestFile) {
+		thumbnailExif, thumbnailExifErr := ctx.Exiftool.ReadMetadata(thumbnailDestFile.Path)
+		Catch(thumbnailExifErr)
+		meta.ThumbnailWidth = thumbnailExif.GetMediaWidth()
+		meta.ThumbnailHeight = thumbnailExif.GetMediaHeight()
+		meta.ThumbnailPath = NullableString(thumbnailDestFile.Path)
+		ch <- true
+	}
+	ch <- false
+}
+
+func GenerateThumbnailFile(ctx AppContext, meta FileMeta, destFile FilePathInfo) bool {
 	destDir := path.Join(ctx.DestDir, destFile.Dirname)
 	MakeDirIfNotExists(destDir)
 
 	var err error = nil
 
-	if regexp.MustCompile("(?i)(^image.*)").MatchString(string(meta.MimeType)) {
-		if !regexp.MustCompile(ThumnailableImageMimeTypes).MatchString(string(meta.MimeType)) {
-			return false
-		}
+	if meta.IsImage {
 		if meta.Width > meta.Height {
 			err = CreateImageThumbnail(ThumbnailWidth, ThumbnailHeight, imaging.Center, meta.OriginPath, destFile.Path)
 		} else {
@@ -233,11 +256,11 @@ func CreateThumbnail(ctx AppContext, meta FileMeta) bool {
 			PrintLnRed("Warning: Cannot create thumbnail image for file " + meta.OriginPath)
 			return false
 		}
+
 		return true
 	}
 
-	if regexp.MustCompile("(?i)(^video.*)").MatchString(string(meta.MimeType)) {
-		destFilePath := path.Join(ctx.DestDir, destFile.Dirname, destFile.Basename) + ".gif"
+	if meta.IsVideo {
 		durationSeconds := time.Duration(meta.Duration) / time.Second
 		startTime := int(durationSeconds / 2)
 		clipDuration := MinInt(int(durationSeconds), GifMaxDuration)
@@ -247,9 +270,9 @@ func CreateThumbnail(ctx AppContext, meta FileMeta) bool {
 		}
 
 		if meta.Width > meta.Height {
-			err = CreateVideoGif(startTime, clipDuration, ThumbnailWidth, GifFrameRate, meta.OriginPath, destFilePath)
+			err = CreateVideoGif(startTime, clipDuration, ThumbnailWidth, GifFrameRate, meta.OriginPath, destFile.Path)
 		} else {
-			err = CreateVideoGif(startTime, clipDuration, PortraitThumbnailWidth, GifFrameRate, meta.OriginPath, destFilePath)
+			err = CreateVideoGif(startTime, clipDuration, PortraitThumbnailWidth, GifFrameRate, meta.OriginPath, destFile.Path)
 		}
 
 		if IsError(err) {
@@ -260,6 +283,16 @@ func CreateThumbnail(ctx AppContext, meta FileMeta) bool {
 	}
 
 	return false
+}
+
+func CreateThumbnailDestRelativePath(ctx AppContext, meta FileMeta) string {
+	destFile := BuildDestination(ctx.DestDir, meta, DirThumbnails)
+
+	if meta.IsVideo {
+		return path.Join(destFile.Dirname, destFile.Basename) + ".gif"
+	}
+
+	return destFile.Path
 }
 
 func GetFileChecksum(path string) string {
