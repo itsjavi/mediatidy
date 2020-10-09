@@ -118,7 +118,6 @@ func TidyRoutine(ctx AppContext, stats *AppRunStats, fileMetaChann chan FileMeta
 	defer ctx.Exiftool.Close()
 	defer ctx.CloseSrcDbIfExists()
 	defer ctx.CloseDb()
-	defer close(fileMetaChann)
 
 	for {
 		meta, isOk := <-walkChan
@@ -148,7 +147,7 @@ func TidyRoutine(ctx AppContext, stats *AppRunStats, fileMetaChann chan FileMeta
 		Catch(ParseFileExifData(ctx, &meta, ctx.Exiftool))
 
 		if !meta.IsImage && !meta.IsVideo {
-			return
+			continue
 		}
 
 		ConfigurePaths(ctx, &meta)
@@ -166,22 +165,14 @@ func TidyRoutine(ctx AppContext, stats *AppRunStats, fileMetaChann chan FileMeta
 		//if ctx.ConvertVideos && meta.IsVideo {
 		//	ConvertVideo(ctx, meta)
 		//}
-
-		ch1 := make(chan bool)
-		go CreateDestFile(ctx, meta, ch1)
-
-		ch2 := make(chan bool)
-		if ctx.CreateThumbnails {
-			go GenerateThumbnail(ctx, &meta, ch2)
-		}
-
-		<-ch1
-		<-ch2
+		GenerateThumbnail(ctx, &meta)
+		CreateDestFile(ctx, meta)
 		CreateDbEntry(ctx, meta)
 
 		fileMetaChann <- meta
 		stats.ProcessedFiles++
 	}
+	defer close(fileMetaChann)
 }
 
 func ConfigurePaths(ctx AppContext, meta *FileMeta) {
@@ -194,9 +185,11 @@ func ConfigurePaths(ctx AppContext, meta *FileMeta) {
 	}
 }
 
-func CreateDestFile(ctx AppContext, meta FileMeta, ch chan bool) {
+func CreateDestFile(ctx AppContext, meta FileMeta) {
+	_, statErr := os.Stat(meta.OriginPath)
+	Catch(statErr)
+
 	destFile := meta.Destination.AbsolutePath
-	defer close(ch)
 
 	MakeDirIfNotExists(meta.Destination.AbsoluteDir)
 
@@ -209,16 +202,13 @@ func CreateDestFile(ctx AppContext, meta FileMeta, ch chan bool) {
 	if ctx.FixCreationDates {
 		Catch(FileFixDates(destFile, meta.CreationDate, meta.ModificationDate))
 	}
-	ch <- true
 }
 
 func CreateDbEntry(ctx AppContext, meta FileMeta) {
 	ctx.Db.InsertFileMetaIfNotExists(&meta)
 }
 
-func GenerateThumbnail(ctx AppContext, meta *FileMeta, ch chan bool) {
-	defer close(ch)
-
+func GenerateThumbnail(ctx AppContext, meta *FileMeta) {
 	thumbnailDestFile := CreateThumbnailDest(ctx, *meta)
 
 	if GenerateThumbnailFile(*meta, thumbnailDestFile) {
@@ -227,12 +217,13 @@ func GenerateThumbnail(ctx AppContext, meta *FileMeta, ch chan bool) {
 		meta.ThumbnailWidth = thumbnailExif.GetMediaWidth()
 		meta.ThumbnailHeight = thumbnailExif.GetMediaHeight()
 		meta.ThumbnailPath = NullableString(thumbnailDestFile.RelativePath)
-		ch <- true
 	}
-	ch <- false
 }
 
 func GenerateThumbnailFile(meta FileMeta, destFile FilePathInfo) bool {
+	_, statErr := os.Stat(meta.OriginPath)
+	Catch(statErr)
+
 	MakeDirIfNotExists(destFile.AbsoluteDir)
 
 	var err error = nil
@@ -296,6 +287,8 @@ func GetFileChecksum(path string) string {
 }
 
 func ParseFileExifData(ctx AppContext, meta *FileMeta, exiftool *Exiftool) error {
+	_, err := os.Stat(meta.OriginPath)
+	Catch(err)
 	exif, err := exiftool.ReadMetadata(meta.OriginPath)
 	hasExif := !IsError(err)
 
