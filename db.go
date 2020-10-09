@@ -123,12 +123,12 @@ type FileMeta struct {
 	ThumbnailHeight int
 
 	// Extra metadata
-	CameraModel  NullableString
-	CreationTool NullableString
-	GPSAltitude  NullableString
 	GPSLatitude  NullableString
 	GPSLongitude NullableString
+	GPSAltitude  NullableString
 	GPSTimezone  NullableString
+	CameraModel  NullableString
+	CreationTool NullableString
 	ExifJson     NullableString
 
 	// Internal
@@ -141,10 +141,12 @@ type FileMeta struct {
 }
 
 type FilePathInfo struct {
-	Path      string
-	Basename  string
-	Dirname   string
-	Extension string
+	AbsolutePath string
+	RelativePath string
+	AbsoluteDir  string
+	RelativeDir  string
+	Basename     string
+	Extension    string
 }
 
 func (FileMeta) TableName() string {

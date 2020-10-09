@@ -186,7 +186,7 @@ func TidyRoutine(ctx AppContext, stats *AppRunStats, fileMetaChann chan FileMeta
 
 func ConfigurePaths(ctx AppContext, meta *FileMeta) {
 	meta.Destination = BuildDestination(ctx.DestDir, *meta, DirOriginals)
-	meta.Path = filepath.Join(meta.Destination.Dirname, meta.Destination.Basename) + "." + meta.Destination.Extension
+	meta.Path = meta.Destination.AbsolutePath
 	initialOriginPath := FindInitialOriginPath(ctx, *meta)
 
 	if initialOriginPath != meta.OriginPath {
@@ -195,16 +195,15 @@ func ConfigurePaths(ctx AppContext, meta *FileMeta) {
 }
 
 func CreateDestFile(ctx AppContext, meta FileMeta, ch chan bool) {
-	destDir := path.Join(ctx.DestDir, meta.Destination.Dirname)
-	destFile := path.Join(destDir, meta.Destination.Basename) + "." + meta.Destination.Extension
+	destFile := meta.Destination.AbsolutePath
 	defer close(ch)
 
-	MakeDirIfNotExists(destDir)
+	MakeDirIfNotExists(meta.Destination.AbsoluteDir)
 
 	if ctx.MoveFiles {
-		Catch(FileMove(meta.Origin.Path, destFile))
+		Catch(FileMove(meta.Origin.AbsolutePath, destFile))
 	} else {
-		Catch(FileCopy(meta.Origin.Path, destFile, true))
+		Catch(FileCopy(meta.Origin.AbsolutePath, destFile, true))
 	}
 
 	if ctx.FixCreationDates {
@@ -220,36 +219,29 @@ func CreateDbEntry(ctx AppContext, meta FileMeta) {
 func GenerateThumbnail(ctx AppContext, meta *FileMeta, ch chan bool) {
 	defer close(ch)
 
-	thumbnailDestRelFile := CreateThumbnailDestRelativePath(ctx, *meta)
-	thumbnailDestFile := FilePathInfo{
-		Path:      path.Join(ctx.DestDir, thumbnailDestRelFile),
-		Basename:  path.Base(thumbnailDestRelFile),
-		Dirname:   path.Dir(thumbnailDestRelFile),
-		Extension: path.Ext(thumbnailDestRelFile),
-	}
+	thumbnailDestFile := CreateThumbnailDest(ctx, *meta)
 
-	if GenerateThumbnailFile(ctx, *meta, thumbnailDestFile) {
-		thumbnailExif, thumbnailExifErr := ctx.Exiftool.ReadMetadata(thumbnailDestFile.Path)
+	if GenerateThumbnailFile(*meta, thumbnailDestFile) {
+		thumbnailExif, thumbnailExifErr := ctx.Exiftool.ReadMetadata(thumbnailDestFile.AbsolutePath)
 		Catch(thumbnailExifErr)
 		meta.ThumbnailWidth = thumbnailExif.GetMediaWidth()
 		meta.ThumbnailHeight = thumbnailExif.GetMediaHeight()
-		meta.ThumbnailPath = NullableString(thumbnailDestFile.Path)
+		meta.ThumbnailPath = NullableString(thumbnailDestFile.RelativePath)
 		ch <- true
 	}
 	ch <- false
 }
 
-func GenerateThumbnailFile(ctx AppContext, meta FileMeta, destFile FilePathInfo) bool {
-	destDir := path.Join(ctx.DestDir, destFile.Dirname)
-	MakeDirIfNotExists(destDir)
+func GenerateThumbnailFile(meta FileMeta, destFile FilePathInfo) bool {
+	MakeDirIfNotExists(destFile.AbsoluteDir)
 
 	var err error = nil
 
 	if meta.IsImage {
 		if meta.Width > meta.Height {
-			err = CreateImageThumbnail(ThumbnailWidth, ThumbnailHeight, imaging.Center, meta.OriginPath, destFile.Path)
+			err = CreateImageThumbnail(ThumbnailWidth, ThumbnailHeight, imaging.Center, meta.OriginPath, destFile.AbsolutePath)
 		} else {
-			err = CreateImageThumbnail(PortraitThumbnailWidth, PortraitThumbnailHeight, imaging.Center, meta.OriginPath, destFile.Path)
+			err = CreateImageThumbnail(PortraitThumbnailWidth, PortraitThumbnailHeight, imaging.Center, meta.OriginPath, destFile.AbsolutePath)
 		}
 
 		if IsError(err) {
@@ -270,9 +262,9 @@ func GenerateThumbnailFile(ctx AppContext, meta FileMeta, destFile FilePathInfo)
 		}
 
 		if meta.Width > meta.Height {
-			err = CreateVideoGif(startTime, clipDuration, ThumbnailWidth, GifFrameRate, meta.OriginPath, destFile.Path)
+			err = CreateVideoGif(startTime, clipDuration, ThumbnailWidth, GifFrameRate, meta.OriginPath, destFile.AbsolutePath)
 		} else {
-			err = CreateVideoGif(startTime, clipDuration, PortraitThumbnailWidth, GifFrameRate, meta.OriginPath, destFile.Path)
+			err = CreateVideoGif(startTime, clipDuration, PortraitThumbnailWidth, GifFrameRate, meta.OriginPath, destFile.AbsolutePath)
 		}
 
 		if IsError(err) {
@@ -285,14 +277,16 @@ func GenerateThumbnailFile(ctx AppContext, meta FileMeta, destFile FilePathInfo)
 	return false
 }
 
-func CreateThumbnailDestRelativePath(ctx AppContext, meta FileMeta) string {
+func CreateThumbnailDest(ctx AppContext, meta FileMeta) FilePathInfo {
 	destFile := BuildDestination(ctx.DestDir, meta, DirThumbnails)
 
 	if meta.IsVideo {
-		return path.Join(destFile.Dirname, destFile.Basename) + ".gif"
+		destFile.AbsolutePath = path.Join(destFile.AbsoluteDir, destFile.Basename) + ".gif"
+		destFile.RelativePath = path.Join(destFile.RelativeDir, destFile.Basename) + ".gif"
+		destFile.Extension = "gif"
 	}
 
-	return destFile.Path
+	return destFile
 }
 
 func GetFileChecksum(path string) string {
@@ -381,10 +375,12 @@ func BuildDestination(destDirRoot string, data FileMeta, relativeDirName string)
 	destDirName := path.Join(relativeDirName, dateFolder)
 
 	return FilePathInfo{
-		Basename:  destFilename,
-		Dirname:   destDirName,
-		Extension: ext,
-		Path:      path.Join(destDirRoot, destDirName, destFilename) + "." + ext,
+		AbsolutePath: path.Join(destDirRoot, destDirName, destFilename) + "." + ext,
+		AbsoluteDir:  path.Join(destDirRoot, destDirName),
+		RelativePath: path.Join(destDirName, destFilename) + "." + ext,
+		RelativeDir:  destDirName,
+		Basename:     destFilename,
+		Extension:    ext,
 	}
 }
 
@@ -443,10 +439,12 @@ func WalkDirRoutine(ctx AppContext) chan FileMeta {
 			current.Size = info.Size()
 			fileExtension := filepath.Ext(path)
 			current.Origin = FilePathInfo{
-				Path:      path,
-				Basename:  strings.Replace(info.Name(), fileExtension, "", -1),
-				Dirname:   filepath.Dir(path),
-				Extension: fileExtension,
+				AbsolutePath: path,
+				AbsoluteDir:  filepath.Dir(path),
+				RelativePath: strings.Replace(path, ctx.SrcDir+string(os.PathSeparator), "", 1),
+				RelativeDir:  strings.Replace(filepath.Dir(path), ctx.SrcDir+string(os.PathSeparator), "", 1),
+				Basename:     strings.Replace(info.Name(), fileExtension, "", -1),
+				Extension:    fileExtension,
 			}
 			current.CreationDate = info.ModTime()
 			current.ModificationDate = info.ModTime()
@@ -515,5 +513,5 @@ func FindInitialOriginPath(ctx AppContext, file FileMeta) string {
 			return srcMeta2.OriginPath
 		}
 	}
-	return file.Origin.Path
+	return file.Origin.AbsolutePath
 }
