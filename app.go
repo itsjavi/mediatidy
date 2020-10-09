@@ -119,10 +119,12 @@ func TidyRoutine(ctx AppContext, stats *AppRunStats, fileMetaChann chan FileMeta
 		}
 
 		Catch(ParseFileExifData(ctx, &meta, ctx.Exiftool))
+		//fmt.Println("will setup paths..")
 		SetupPaths(ctx, &meta)
 		if !ctx.CreateDbOnly {
 			CreateDestFile(ctx, meta)
 		}
+		//fmt.Println("will create a DB entry..")
 		CreateDbEntry(ctx, meta)
 
 		//if ctx.CreateThumbnails {
@@ -196,9 +198,10 @@ func GetFileChecksum(path string) string {
 
 func ParseFileExifData(ctx AppContext, meta *FileMeta, exiftool *Exiftool) error {
 	exif, err := exiftool.ReadMetadata(meta.OriginPath)
+	hasExif := !IsError(err)
 
-	if IsError(err) {
-		return err
+	if !hasExif {
+		PrintError(err)
 	}
 
 	meta.CameraModel = NullableString(exif.GetFullCameraName())
@@ -352,7 +355,7 @@ func WalkDirRoutine(ctx AppContext) chan FileMeta {
 
 func PrintAppStats(currentFile string, stats AppRunStats, ctx AppContext) {
 	PrintReplaceLn(
-		"[%s] "+tm.Color(tm.Bold("Stats: %s duplicates | %s skipped | %s processed | %s total size | %s elapsed time | file: %s"), tm.YELLOW),
+		"[%s] "+tm.Color(tm.Bold("Stats: %s duplicates + %s skipped | %s processed | %s | %s | %s"), tm.YELLOW),
 		AppName,
 		ToString(stats.SkippedSameName+stats.SkippedSameChecksum),
 		ToString(stats.SkippedOther),
@@ -389,16 +392,20 @@ func FindExistingExifMetadata(ctx AppContext, file FileMeta) []byte {
 // get origin path from SRC db instead (if exists)
 func FindInitialOriginPath(ctx AppContext, file FileMeta) string {
 	if ctx.HasSrcMetadataDb() {
-		srcMeta, found, err := ctx.SrcDb.FindFileMetaByChecksum(file.Checksum)
-		Catch(err)
+		srcMeta, found, _ := ctx.SrcDb.FindFileMetaByChecksum(file.Checksum)
 		if found {
 			return srcMeta.OriginPath
 		}
 		// support old MD5 hashes
-		srcMeta, found, err = ctx.SrcDb.FindFileMetaByChecksum(FileGetMD5Checksum(file.OriginPath))
-		Catch(err)
+		srcMeta, found, _ = ctx.SrcDb.FindFileMetaByChecksum(FileGetMD5Checksum(file.OriginPath))
 		if found {
 			return srcMeta.OriginPath
+		}
+
+		// support legacy DB schemas
+		srcMeta2, found2, _ := ctx.SrcDb.LegacyFindFileMetaBy("checksum", FileGetMD5Checksum(file.OriginPath))
+		if found2 {
+			return srcMeta2.OriginPath
 		}
 	}
 	return file.Origin.Path

@@ -36,7 +36,7 @@ func (s NullableString) Value() (driver.Value, error) {
 	if s == "" {
 		return nil, nil
 	}
-	return s, nil
+	return string(s), nil
 }
 
 type MediaDuration time.Duration
@@ -82,6 +82,17 @@ func (d *MediaDuration) Parse(value string) error {
 
 	*d = MediaDuration(nanoSeconds)
 	return nil
+}
+
+type LegacyFileMeta struct {
+	ID         uint   `gorm:"primarykey"`
+	Checksum   string `gorm:"type:string;size:32;uniqueIndex"`
+	Path       string `gorm:"type:text;index"`
+	OriginPath string `gorm:"type:text;index"`
+}
+
+func (LegacyFileMeta) TableName() string {
+	return "files"
 }
 
 type FileMeta struct {
@@ -193,6 +204,15 @@ func (dbh *DbHelper) HasFileMetaByChecksum(checksum string) bool {
 
 func (dbh *DbHelper) FindFileMetaBy(column string, val string) (FileMeta, bool, error) {
 	var record = FileMeta{}
+	result := dbh.db.First(&record, column+" = ?", val)
+	if errors.Is(result.Error, gorm.ErrRecordNotFound) {
+		return record, false, nil
+	}
+	return record, record.ID > 0, result.Error
+}
+
+func (dbh *DbHelper) LegacyFindFileMetaBy(column string, val string) (LegacyFileMeta, bool, error) {
+	var record = LegacyFileMeta{}
 	result := dbh.db.First(&record, column+" = ?", val)
 	if errors.Is(result.Error, gorm.ErrRecordNotFound) {
 		return record, false, nil

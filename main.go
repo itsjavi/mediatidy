@@ -12,6 +12,9 @@ import (
 )
 
 func main() {
+	_, timeErr := time.LoadLocation("UTC")
+	Catch(timeErr)
+
 	var app = &cli.App{
 		Usage:                  "Media file organizer",
 		UseShortOptionHandling: true,
@@ -72,9 +75,9 @@ func main() {
 						Usage:   "Fix the file creation date by using the one in the metadata, if available.",
 					},
 					&cli.BoolFlag{
-						Name:    "db-only",
-						Value:   false,
-						Usage:   "Only created the DB index, without moving or copying files.",
+						Name:  "db-only",
+						Value: false,
+						Usage: "Only created the DB index, without moving or copying files.",
 					},
 					&cli.BoolFlag{
 						Name:    "move",

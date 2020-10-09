@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os/exec"
@@ -60,8 +61,19 @@ func (et *Exiftool) UseDefaults() {
 		readyToken:       readyToken,
 		readyTokenLength: len(readyToken),
 		bufferCloseArgs:  []string{"-stay_open", "False", "-execute"},
-		dataExtractArgs:  []string{"-json", "-api", "largefilesupport=1", "-extractEmbedded"},
-		executeArg:       "-execute",
+		dataExtractArgs: []string{
+			"-json",
+			"-api", "largefilesupport=1",
+			"-extractEmbedded",
+			// exclude these tags (which can be very big strings)
+			"-x", "HistoryChanged",
+			"-x", "HistoryWhen",
+			"-x", "HistorySoftwareAgent",
+			"-x", "HistoryInstanceID",
+			"-x", "HistoryAction",
+			"-x", "ThumbnailImage",
+		},
+		executeArg: "-execute",
 	}
 }
 
@@ -143,6 +155,7 @@ func (et *Exiftool) ReadMetadata(file string) (ExifToolMetadata, error) {
 
 	meta := ExifToolMetadata{}
 	meta.SourceFile = file
+	meta.Parse([]byte("{}"))
 
 	for _, dataExtractArg := range et.config.dataExtractArgs {
 		fmt.Fprintln(et.io.stdin, dataExtractArg)
@@ -152,7 +165,7 @@ func (et *Exiftool) ReadMetadata(file string) (ExifToolMetadata, error) {
 	fmt.Fprintln(et.io.stdin, et.config.executeArg)
 
 	if !et.io.scanMergedOut.Scan() {
-		return meta, fmt.Errorf("nothing on stdMergedOut")
+		return meta, fmt.Errorf("error reading exif data:" + file)
 	}
 
 	if et.io.scanMergedOut.Err() != nil {
@@ -170,6 +183,23 @@ func (meta *ExifToolMetadata) Get(key string) string {
 
 func (meta *ExifToolMetadata) GetInt(key string) int {
 	return meta.DataMap.GetInt(key)
+}
+
+var ZeroDateError = fmt.Errorf("zero-date string")
+
+func (meta *ExifToolMetadata) GetTime(key string) (time.Time, error) {
+	var val = meta.Get(key)
+	if val == "" || !regexp.MustCompile("(?i)^[1-9]").MatchString(val) {
+		return time.Time{}, ZeroDateError
+	}
+	dateFormat, normalizedDate := NormalizeTimestampStringFormat(val)
+	date, err := time.Parse(dateFormat, normalizedDate)
+
+	if IsError(err) {
+		return date, fmt.Errorf("\n\nparsing time error formatting '%s' as '%s' \n%s", normalizedDate, dateFormat, err.Error())
+	}
+
+	return date, nil
 }
 
 func (meta *ExifToolMetadata) Parse(jsonBytes []byte) error {
@@ -195,49 +225,38 @@ func (meta *ExifToolMetadata) GetGPSData() GPSData {
 	return gps
 }
 
+var ExifCreationDateNotFoundError = fmt.Errorf("cannot find a suitable exif creation date")
+
 func (meta *ExifToolMetadata) GetEarliestCreationDate() time.Time {
-	metadataDateFormat := "2006:01:02 15:04:05"
 	var candidates []time.Time
 	var candidateKeys = []string{
 		"CreateDate", "ModifyDate", "DateTimeOriginal", "DateTimeDigitized", "GPSDateTime", "FileModifyDate",
 	}
-	var candidateKeysUsed = []string{}
 
 	fallback := time.Time{}
 
 	for _, key := range candidateKeys {
-		var val = meta.Get(key)
-		if val == "" || val == "0000:00:00 00:00:00" {
+		var candidate, err = meta.GetTime(key)
+		if errors.Is(err, ZeroDateError) {
 			continue
 		}
 
-		var dateFormat = metadataDateFormat
-
-		if regexp.MustCompile("(?i)^[0-9]{4}-[0-9]{2}-[0-9]{2}$").MatchString(val) {
-			dateFormat = "2006-01-02 15:04:05"
+		if IsError(err) {
+			continue
 		}
-
-		if strings.Contains(val, "Z") {
-			dateFormat += "Z"
-		} else if strings.Contains(val, "+") {
-			dateFormat += "-07:00"
-		}
-
-		candidate, err := time.Parse(dateFormat, val)
-		if !IsError(err) {
-			candidates = append(candidates, candidate)
-			candidateKeysUsed = append(candidateKeysUsed, key+"/"+val)
-		} else {
-			Catch(fmt.Errorf(err.Error() + " --- " + key + " --- " + meta.DataMapJson))
-		}
+		candidates = append(candidates, candidate)
 	}
 
-	//fmt.Println(candidateKeysUsed)
-	//fmt.Println(candidates)
+	if len(candidates) == 0 {
+		PrintLnRed(meta.SourceFile)
+		Catch(ExifCreationDateNotFoundError)
+	}
+
 	earliest := FindEarliestDate(candidates, fallback)
 
 	if earliest.Year() <= 1970 {
-		Catch(fmt.Errorf("Invalid date in: " + meta.DataMapJson + ". Date: " + earliest.String()))
+		PrintLnRed(meta.SourceFile)
+		Catch(ExifCreationDateNotFoundError)
 	}
 
 	return earliest

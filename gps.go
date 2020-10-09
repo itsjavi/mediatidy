@@ -16,15 +16,15 @@ type GPSData struct {
 }
 
 func (data *GPSData) Parse(gpsPosition string, gpsAltitude string, gpsDateTime string) {
+	if gpsAltitude == "" {
+		data.Altitude = "0 m Above Sea Level"
+	}
+
 	if gpsPosition == "" {
 		return
 	}
 
 	coords := gpsParseCoords(gpsPosition)
-
-	if (gpsAltitude == "") {
-		gpsAltitude = "0 m Above Sea Level"
-	}
 
 	data.Position = gpsPosition
 	data.Altitude = gpsAltitude

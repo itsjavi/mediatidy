@@ -4,7 +4,9 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	tm "github.com/buger/goterm"
 	"log"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -30,6 +32,14 @@ func (kv KeyValueMap) GetInt(key string) int {
 
 func IsError(e error) bool {
 	return e != nil
+}
+
+func PrintLnRed(str string) {
+	fmt.Println("\n" + tm.Color(str, tm.RED))
+}
+
+func PrintError(err error) {
+	PrintLnRed(fmt.Sprintf("%s", err))
 }
 
 func Catch(err error) {
@@ -157,4 +167,36 @@ func StrToInt(str string) int {
 		Catch(err)
 	}
 	return num
+}
+
+func NormalizeTimestampStringFormat(date string) (string, string) {
+	layout := "2006-01-02T15:04:05"
+	date = strings.ToUpper(date)
+	date = strings.Replace(date, " ", "T", 1)
+	date = strings.ReplaceAll(date, "GMT", "")
+	date = strings.Trim(date, " Z")
+
+	withSemicolonYmd := regexp.MustCompile("(?i)^([0-9]{4}):([0-9]{2}):([0-9]{2})(.*)")
+	withoutSeconds := regexp.MustCompile("(?i)^([0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2})([^:].*$|$)")
+	withLeapSeconds := regexp.MustCompile("(?i)^([0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2})([.:])([0-9]{2,})(.*)?")
+	withTimeZone := regexp.MustCompile("(?i)(.*)([+\\-Z])([0-9]{2}:[0-9]{2})$")
+
+	if withSemicolonYmd.MatchString(date) { // replace : with - in date
+		date = withSemicolonYmd.ReplaceAllString(date, "$1-$2-$3$4")
+	}
+
+	if withoutSeconds.MatchString(date) { // add seconds part to date
+		date = withoutSeconds.ReplaceAllString(date, "$1:00$2")
+	}
+
+	if withLeapSeconds.MatchString(date) { // add leap seconds to layout
+		layout += withLeapSeconds.ReplaceAllString(date, "$2") +
+			strings.Repeat("0", len(withLeapSeconds.ReplaceAllString(date, "$3")))
+	}
+
+	if withTimeZone.MatchString(date) { // add timezone to layout
+		layout += "Z07:00"
+	}
+
+	return layout, date
 }
