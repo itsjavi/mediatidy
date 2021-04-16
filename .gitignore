@@ -1,0 +1,7 @@
+.idea
+._*
+*.log
+
+/data
+/mediatidy
+*.json

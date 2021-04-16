@@ -1,4 +1,4 @@
-package main
+package app
 
 import (
 	"bytes"
@@ -27,7 +27,7 @@ func PrintLn(template string, args ...interface{}) {
 
 func PrintReplaceLn(template string, args ...interface{}) {
 	tm.Clear()
-	tm.MoveCursor(1,1)
+	tm.MoveCursor(1, 1)
 	tm.Printf(template, args...)
 	tm.Flush()
 }

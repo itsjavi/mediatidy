@@ -2,15 +2,15 @@ package main
 
 import (
 	"errors"
+	"github.com/itsjavi/mediatidy/internal/app"
+	"github.com/urfave/cli/v2"
 	"os"
 	"path/filepath"
 	"time"
-
-	"github.com/urfave/cli/v2"
 )
 
 func main() {
-	var app = &cli.App{
+	var cliApp = &cli.App{
 		Usage:                  "Media file organizer",
 		Description:            "Organizes the image and video files of a folder recursively from source to destination.",
 		ArgsUsage:              "source destination",
@@ -60,7 +60,7 @@ func main() {
 			},
 		},
 		Action: func(c *cli.Context) error {
-			params := CmdOptions{}
+			params := app.CmdOptions{}
 
 			if c.NArg() == 0 {
 				return errors.New("Source and destination directory arguments are missing.")
@@ -80,7 +80,7 @@ func main() {
 			params.Move = c.Bool("move")
 			params.Quiet = c.Bool("quiet")
 
-			if !IsDir(params.SrcDir) {
+			if !app.IsDir(params.SrcDir) {
 				return errors.New("Source directory does not exist.")
 			}
 
@@ -88,11 +88,11 @@ func main() {
 				return errors.New("Source and destination directories cannot be the same.")
 			}
 
-			_, err := TidyUp(params)
+			_, err := app.TidyUp(params)
 
 			return err
 		},
 	}
-	err := app.Run(os.Args)
-	HandleError(err)
+	err := cliApp.Run(os.Args)
+	app.HandleError(err)
 }
