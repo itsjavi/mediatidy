@@ -1,13 +1,16 @@
 module github.com/itsjavi/mediatidy
 
-go 1.16
+go 1.19
 
 require (
 	github.com/bradfitz/latlong v0.0.0-20170410180902-f3db6d0dff40
-	github.com/buger/goterm v0.0.0-20200322175922-2f3e71b85129
-	github.com/golang/freetype v0.0.0-20170609003504-e2365dfdc4a0 // indirect; indirectv1.9.0
-	github.com/jonas-p/go-shp v0.1.1 // indirect
-	github.com/urfave/cli/v2 v2.3.0
-	golang.org/x/image v0.0.0-20200927104501-e162460cd6b5 // indirect
-	golang.org/x/sys v0.0.0-20200930185726-fdedc70b468f // indirect
+	github.com/buger/goterm v1.0.4
+	github.com/urfave/cli/v2 v2.14.1
+)
+
+require (
+	github.com/cpuguy83/go-md2man/v2 v2.0.2 // indirect
+	github.com/russross/blackfriday/v2 v2.1.0 // indirect
+	github.com/xrash/smetrics v0.0.0-20201216005158-039620a65673 // indirect
+	golang.org/x/sys v0.0.0-20210331175145-43e1dd70ce54 // indirect
 )

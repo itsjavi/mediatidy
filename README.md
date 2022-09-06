@@ -12,7 +12,7 @@ Command-line tool written in Go to organise all media files in a directory recur
 
 ## Requirements
 
-- [go >= v1.16](https://github.com/golang/go)
+- [go >= v1.19](https://github.com/golang/go)
 - [exiftool >= v12](https://github.com/exiftool/exiftool)
 - ffmpeg
 

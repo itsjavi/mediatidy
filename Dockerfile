@@ -1,11 +1,11 @@
-FROM golang:1.16-stretch as builder
+FROM golang:1.19-stretch as builder
 WORKDIR /app
 COPY . .
 RUN make build
 ENTRYPOINT ["make"]
 
-FROM alpine:3.13 as runner
-ENV EXIFTOOL_VERSION=12.24
+FROM alpine:3.16 as runner
+ENV EXIFTOOL_VERSION=12.44
 # add deps
 RUN apk add --no-cache perl make
 # install exiftool
