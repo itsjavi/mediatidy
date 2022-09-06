@@ -21,7 +21,7 @@ Command-line tool written in Go to organise all media files in a directory recur
 
 ```bash
 
-go install github.com/itsjavi/mediatidy
+go install github.com/itsjavi/mediatidy/cmd/mediatidy@latest
 
 ```
 
