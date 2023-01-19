@@ -28,7 +28,7 @@ const (
 
 	DefaultCameraModelFallback = "Unknown"
 
-	RegexImage       = "(?i)\\.(jpg|jpeg|gif|png|webp|tiff|tif|bmp|raw|svg|psd|ai)$"
+	RegexImage       = "(?i)\\.(jpg|jpeg|gif|png|heic|heif|webp|tiff|tif|bmp|raw|svg|psd|ai)$"
 	RegexVideo       = "(?i)\\.(mpg|wmv|avi|mov|m4v|3gp|mp4|flv|webm|ogv|ts|divx|mkv|mpeg)$"
 	RegexVideoOld    = "(?i)\\.(mpg|wmv|avi|mov|m4v|3gp|flv|divx|mpeg)$"
 	RegexExcludeDirs = "(?i)(\\.([a-z_0-9-]+)|/bower_components|/node_modules|/vendor|/Developer)/.*$"
